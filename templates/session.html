@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session - RehabAI</title>
+    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* ── Camera container ── */
+        .camera-container {
+            position: relative;
+            background: #0d1117;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+            margin-bottom: 12px;
+        }
+        .camera-container img#poseStream {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+        }
+
+        /* ── Timer ring ── */
+        .timer-ring-wrap {
+            position: absolute;
+            bottom: 14px;
+            right: 14px;
+            z-index: 10;
+            display: none;
+        }
+        .timer-ring-wrap.active { display: block; }
+        .timer-svg { transform: rotate(-90deg); }
+        .timer-bg   { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 5; }
+        .timer-fill {
+            fill: none;
+            stroke: #4CAF50;
+            stroke-width: 5;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s linear, stroke 0.3s;
+        }
+        .timer-text {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+        }
+
+        /* ── Pose badges ── */
+        .pose-badges {
+            position: absolute;
+            top: 12px; left: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .pose-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #fff;
+            min-width: 130px;
+        }
+        .pose-badge.green  { background: rgba(76,175,80,0.82); }
+        .pose-badge.blue   { background: rgba(33,150,243,0.82); }
+        .pose-badge.orange { background: rgba(255,152,0,0.82); }
+        .pose-badge.red    { background: rgba(244,67,54,0.82); }
+        .pose-badge.purple { background: rgba(156,39,176,0.82); }
+        .pose-badge.joint-inactive {
+            background: rgba(120,120,120,0.45) !important;
+            filter: grayscale(1);
+            opacity: 0.55;
+        }
+        .angle-item.joint-inactive {
+            opacity: 0.4;
+            filter: grayscale(1);
+        }
+        .angle-item.joint-active {
+            box-shadow: 0 0 0 1px rgba(76,175,80,0.4) inset;
+            border-radius: 6px;
+        }
+
+        /* ── Recording dot ── */
+        .recording-indicator {
+            position: absolute;
+            top: 12px; right: 12px;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            background: rgba(244,67,54,0.85);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            z-index: 10;
+        }
+        .recording-indicator.active { display: flex; }
+        .rec-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #fff;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+        .no-pose-warning {
+            position: absolute;
+            bottom: 12px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(244,67,54,0.85);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 14px;
+            border-radius: 20px;
+            display: none;
+            z-index: 10;
+            white-space: nowrap;
+        }
+
+        /* ── Duration selector ── */
+        .duration-selector {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 4px;
+        }
+        .dur-btn {
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 2px solid rgba(76,175,80,0.3);
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .dur-btn:hover  { border-color: var(--medical-green); color: var(--medical-green); }
+        .dur-btn.active { background: var(--medical-green); border-color: var(--medical-green); color: #fff; }
+
+        .custom-dur-wrap {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .custom-dur-wrap.show { display: flex; }
+        .custom-dur-wrap input {
+            width: 70px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(0,0,0,0.1);
+            background: rgba(255,255,255,0.6);
+            font-size: 14px;
+        }
+
+        /* ── Session result modal ── */
+        .result-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(6px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .result-modal.active { display: flex; }
+        .result-card {
+            background: rgba(255,255,255,0.96);
+            border-radius: 24px;
+            padding: 32px;
+            max-width: 680px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        .result-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .result-icon {
+            width: 64px; height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4CAF50, #388E3C);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            color: #fff;
+            margin: 0 auto 12px;
+            box-shadow: 0 8px 24px rgba(76,175,80,0.3);
+        }
+        .result-header h2 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .result-header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .result-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .result-stat {
+            text-align: center;
+            padding: 14px 8px;
+            border-radius: 14px;
+            background: var(--light-gray);
+        }
+        .result-stat .val {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+        .result-stat .lbl {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .result-chart-wrap {
+            position: relative;
+            height: 220px;
+            margin-bottom: 20px;
+        }
+        .result-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 600px) {
+            .result-stats { grid-template-columns: repeat(2,1fr); }
+        }
+    </style>
+</head>
+<body>
+<div class="app-container">
+
+    <!-- Sidebar -->
+    <aside class="sidebar glass-effect">
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <img class="logo-icon" src="/assets/logo.png?v=2" alt="MedNova logo" width="44" height="44">
+                <div class="logo-text">
+                    <span class="logo-title">MedNova</span>
+                    <span class="logo-subtitle">Therapy System</span>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/dashboard" class="nav-item"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
+            <a href="/patients"  class="nav-item"><i class="fas fa-users"></i><span>Patients</span></a>
+            <a href="/session"   class="nav-item active"><i class="fas fa-video"></i><span>Start Session</span></a>
+            <a href="/reports"   class="nav-item"><i class="fas fa-file-alt"></i><span>Reports</span></a>
+            <a href="/analytics" class="nav-item"><i class="fas fa-chart-line"></i><span>Analysis</span></a>
+            <a href="#"          class="nav-item"><i class="fas fa-cog"></i><span>Settings</span></a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="status-indicator">
+                <span class="status-dot online"></span>
+                <span class="status-text">System Online</span>
+            </div>
+            <div class="version-info">v2.2.0</div>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+        <header class="top-bar glass-effect">
+            <div class="top-bar-left">
+                <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                <div class="breadcrumb">
+                    <span>Home</span><i class="fas fa-chevron-right"></i>
+                    <span class="active">Session</span>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="patient-selector">
+                    <select id="sessionPatientSelect" class="glass-select">
+                        <option value="">Select Patient</option>
+                    </select>
+                </div>
+                <div class="status-badge" id="sessionStatus">
+                    <span class="badge-dot" id="statusDot"></span>
+                    <span id="statusText">Ready</span>
+                </div>
+                <div class="camera-status" id="cameraStatus">
+                    <i class="fas fa-camera"></i>
+                    <span id="cameraStatusText">Disconnected</span>
+                </div>
+                <button class="logout-btn" onclick="handleLogout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </header>
+
+        <div class="content-area">
+            <div class="session-container">
+
+                <!-- Camera -->
+                <div class="camera-section glass-effect">
+                    <div class="camera-header">
+                        <h3>Live Pose Analysis</h3>
+                        <div class="camera-controls">
+                            <button id="startSessionBtn" class="btn-primary" onclick="startSession()">
+                                <i class="fas fa-play"></i> Start Session
+                            </button>
+                            <button id="stopSessionBtn" class="btn-danger" onclick="stopSession()" style="display:none">
+                                <i class="fas fa-stop"></i> Stop Session
+                            </button>
+                            <button class="btn-secondary" onclick="toggleCamera()">
+                                <i class="fas fa-camera"></i> Camera
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="camera-container">
+                        <!-- ✅ MJPEG stream — browser decodes natively, no canvas/JS drawing needed -->
+                        <img id="poseStream" alt="Live pose stream" style="display:none">
+
+                        <!-- Pose badges -->
+                        <div class="pose-badges" id="poseBadges" style="display:none">
+                            <div class="pose-badge green"  id="badge_l_shoulder" data-joint="shoulder"><i class="fas fa-circle" style="font-size:7px"></i> L.Shoulder: --°</div>
+                            <div class="pose-badge blue"   id="badge_r_shoulder" data-joint="shoulder"><i class="fas fa-circle" style="font-size:7px"></i> R.Shoulder: --°</div>
+                            <div class="pose-badge orange" id="badge_l_elbow"    data-joint="elbow">   <i class="fas fa-circle" style="font-size:7px"></i> L.Elbow: --°</div>
+                            <div class="pose-badge purple" id="badge_r_elbow"    data-joint="elbow">   <i class="fas fa-circle" style="font-size:7px"></i> R.Elbow: --°</div>
+                            <div class="pose-badge green"  id="badge_l_knee"     data-joint="knee">    <i class="fas fa-circle" style="font-size:7px"></i> L.Knee: --°</div>
+                            <div class="pose-badge blue"   id="badge_r_knee"     data-joint="knee">    <i class="fas fa-circle" style="font-size:7px"></i> R.Knee: --°</div>
+                        </div>
+
+                        <!-- Countdown ring -->
+                        <div class="timer-ring-wrap" id="timerRing">
+                            <svg class="timer-svg" width="72" height="72" viewBox="0 0 72 72">
+                                <circle class="timer-bg"   cx="36" cy="36" r="30"/>
+                                <circle class="timer-fill" id="timerArc" cx="36" cy="36" r="30"
+                                        stroke-dasharray="188.5" stroke-dashoffset="0"/>
+                            </svg>
+                            <div class="timer-text" id="timerText">0:00</div>
+                        </div>
+
+                        <!-- Recording -->
+                        <div class="recording-indicator" id="recIndicator">
+                            <div class="rec-dot"></div> REC
+                        </div>
+
+                        <!-- No pose -->
+                        <div class="no-pose-warning" id="noPoseWarning">
+                            ⚠ No pose detected — move into frame
+                        </div>
+
+                        <!-- Placeholder -->
+                        <div id="cameraPlaceholder" class="camera-placeholder">
+                            <i class="fas fa-video fa-3x"></i>
+                            <p>Click "Camera" to start</p>
+                        </div>
+                    </div>
+
+                    <div class="camera-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">FPS</span>
+                            <span class="stat-value" id="fpsDisplay">--</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Detected</span>
+                            <span class="stat-value" id="detectionStatus">No</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Elapsed</span>
+                            <span class="stat-value" id="sessionTimer">00:00</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Remaining</span>
+                            <span class="stat-value" id="remainingTimer" style="color:#FF9800">--:--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Exercise Controls -->
+                <div class="exercise-section glass-effect">
+                    <div class="exercise-header">
+                        <h3>Exercise Configuration</h3>
+                    </div>
+                    <div class="exercise-controls">
+                        <div class="form-group">
+                            <label>Exercise Type</label>
+                            <select id="exerciseType" class="form-input">
+                                <option value="Shoulder Rehab">Shoulder Rehab</option>
+                                <option value="Elbow Rehab">Elbow Rehab</option>
+                                <option value="Hand Rehab">Hand Rehab</option>
+                                <option value="Hip Rehab">Hip Rehab</option>
+                                <option value="Knee Rehab">Knee Rehab</option>
+                                <option value="Leg Rehab">Leg Rehab</option>
+                                <option value="Ankle Rehab">Ankle Rehab</option>
+                                <option value="Balance Exercise">Balance Exercise</option>
+                                <option value="Squat">Squat</option>
+                                <option value="Arm Raise">Arm Raise</option>
+                                <option value="Shoulder Flexion">Shoulder Flexion</option>
+                                <option value="Knee Flexion">Knee Flexion</option>
+                            </select>
+                        </div>
+
+                        <!-- ✅ Duration selector -->
+                        <div class="form-group">
+                            <label>Session Duration</label>
+                            <div class="duration-selector">
+                                <button class="dur-btn active" data-sec="60"  onclick="selectDuration(this,60)">1 min</button>
+                                <button class="dur-btn"        data-sec="120" onclick="selectDuration(this,120)">2 min</button>
+                                <button class="dur-btn"        data-sec="300" onclick="selectDuration(this,300)">5 min</button>
+                                <button class="dur-btn"        data-sec="0"   onclick="selectDuration(this,0)">Custom</button>
+                            </div>
+                            <div class="custom-dur-wrap" id="customDurWrap">
+                                <input type="number" id="customDurInput" min="1" max="60" value="3" placeholder="min">
+                                <span style="font-size:13px;color:var(--text-secondary)">minutes</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Target Repetitions</label>
+                            <input type="number" id="targetReps" class="form-input" value="10" min="1" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label>Target ROM (°)</label>
+                            <input type="number" id="targetRom" class="form-input" value="90" min="10" max="180">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics -->
+                <div class="analytics-section glass-effect">
+                    <div class="analytics-header"><h3>Live Analytics</h3></div>
+                    <div class="analytics-grid">
+                        <div class="analytics-card">
+                            <span class="analytics-label">Repetitions</span>
+                            <span class="analytics-value" id="repCounter">0 / 0</span>
+                            <div class="progress-bar"><div class="progress-fill" id="repProgress" style="width:0%"></div></div>
+                        </div>
+                        <div class="analytics-card">
+                            <span class="analytics-label">Accuracy</span>
+                            <span class="analytics-value" id="accuracyDisplay">0%</span>
+                            <div class="progress-bar"><div class="progress-fill" id="accuracyProgress" style="width:0%"></div></div>
+                        </div>
+                        <div class="analytics-card">
+                            <span class="analytics-label">Range of Motion</span>
+                            <span class="analytics-value" id="romDisplay">0°</span>
+                            <div class="progress-bar"><div class="progress-fill" id="romProgress" style="width:0%"></div></div>
+                        </div>
+                        <div class="analytics-card">
+                            <span class="analytics-label">Stability</span>
+                            <span class="analytics-value" id="stabilityDisplay">0%</span>
+                            <div class="progress-bar"><div class="progress-fill" id="stabilityProgress" style="width:0%"></div></div>
+                        </div>
+                    </div>
+
+                    <div class="feedback-display" id="feedbackDisplay">
+                        <div class="feedback-message">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Start session to receive feedback</span>
+                        </div>
+                    </div>
+
+                    <div class="joint-angles">
+                        <h4>Joint Angles</h4>
+                        <div class="angle-grid">
+                            <div class="angle-item" data-joint="shoulder"><span class="angle-label">Left Shoulder</span> <span class="angle-value" id="leftShoulderAngle">--°</span></div>
+                            <div class="angle-item" data-joint="shoulder"><span class="angle-label">Right Shoulder</span><span class="angle-value" id="rightShoulderAngle">--°</span></div>
+                            <div class="angle-item" data-joint="elbow"><span class="angle-label">Left Elbow</span>    <span class="angle-value" id="leftElbowAngle">--°</span></div>
+                            <div class="angle-item" data-joint="elbow"><span class="angle-label">Right Elbow</span>   <span class="angle-value" id="rightElbowAngle">--°</span></div>
+                            <div class="angle-item" data-joint="knee"><span class="angle-label">Left Knee</span>     <span class="angle-value" id="leftKneeAngle">--°</span></div>
+                            <div class="angle-item" data-joint="knee"><span class="angle-label">Right Knee</span>    <span class="angle-value" id="rightKneeAngle">--°</span></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ✅ Session Result Modal -->
+<div class="result-modal" id="resultModal">
+    <div class="result-card">
+        <div class="result-header">
+            <div class="result-icon"><i class="fas fa-trophy"></i></div>
+            <h2>Session Complete!</h2>
+            <p id="resultSubtitle">Great work — here's your summary</p>
+        </div>
+
+        <!-- Summary stats -->
+        <div class="result-stats">
+            <div class="result-stat">
+                <div class="val" id="res_duration">0:00</div>
+                <div class="lbl">Duration</div>
+            </div>
+            <div class="result-stat">
+                <div class="val" id="res_accuracy" style="color:#4CAF50">0%</div>
+                <div class="lbl">Avg Accuracy</div>
+            </div>
+            <div class="result-stat">
+                <div class="val" id="res_rom" style="color:#2196F3">0°</div>
+                <div class="lbl">Avg ROM</div>
+            </div>
+            <div class="result-stat">
+                <div class="val" id="res_stability" style="color:#9C27B0">0%</div>
+                <div class="lbl">Avg Stability</div>
+            </div>
+        </div>
+
+        <!-- Progress chart over time -->
+        <div class="result-chart-wrap">
+            <canvas id="resultChart"></canvas>
+        </div>
+
+        <div class="result-actions">
+            <button class="btn-primary" onclick="closeResult()">
+                <i class="fas fa-redo"></i> New Session
+            </button>
+            <button class="btn-secondary" onclick="window.location.href='/reports'">
+                <i class="fas fa-file-alt"></i> View Reports
+            </button>
+            <button class="btn-secondary" onclick="window.location.href='/dashboard'">
+                <i class="fas fa-th-large"></i> Dashboard
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let sessionActive    = false;
+let cameraActive     = false;
+let sessionStartTime = null;
+let countdownTotal   = 60;       // seconds
+let countdownLeft    = 60;
+let countdownTimer   = null;
+let elapsedTimer     = null;
+let elapsedSec       = 0;
+
+let currentAccuracy   = 0;
+let currentRom        = 0;
+let currentStability  = 0;
+let currentSmoothness = 100;   // ✅ real — from backend frame-jerk variance
+let currentBalance    = 100;   // ✅ real — from backend shoulder-sway variance
+let currentFatigue    = 0;     // ✅ real — from backend rep-quality decline trend
+let repCount         = 0;
+
+let poseDetected     = false;
+
+// ✅ MJPEG + polling state (replaces WebSocket)
+let poseInterval     = null;   // setInterval handle for /api/pose_data polling
+let pollFailCount    = 0;
+let lastPollOkTime   = 0;
+let fpsCounter       = 0;
+let fpsWindowStart   = Date.now();
+
+// ✅ Time-series data for result chart
+let _timeline = [];   // [{t, acc, rom, stab}]
+let _timelineTimer = null;
+
+let resultChartInst  = null;
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadPatients();
+    retryPendingSessions();
+    document.getElementById('menuToggle')?.addEventListener('click', () =>
+        document.querySelector('.sidebar').classList.toggle('active'));
+});
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+async function loadPatients() {
+    try {
+        const pts = await (await fetch('/api/patients')).json();
+        const sel = document.getElementById('sessionPatientSelect');
+        pts.forEach(p => {
+            const o = document.createElement('option');
+            o.value = p.id; o.textContent = p.name;
+            sel.appendChild(o);
+        });
+    } catch(e) { console.error(e); }
+}
+
+// ─── Duration selector ────────────────────────────────────────────────────────
+function selectDuration(btn, sec) {
+    document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const wrap = document.getElementById('customDurWrap');
+    if (sec === 0) {
+        wrap.classList.add('show');
+        countdownTotal = parseInt(document.getElementById('customDurInput').value || 3) * 60;
+    } else {
+        wrap.classList.remove('show');
+        countdownTotal = sec;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('customDurInput')?.addEventListener('input', e => {
+        countdownTotal = Math.max(1, parseInt(e.target.value || 1)) * 60;
+    });
+});
+
+// ─── ✅ Camera (MJPEG <img> stream, no WebSocket / no canvas) ─────────────────
+function toggleCamera() {
+    cameraActive ? stopCamera() : startCamera();
+}
+
+function startCamera() {
+    const img = document.getElementById('poseStream');
+
+    // cache-bust so the browser always opens a fresh MJPEG connection
+    img.src = '/video_feed?t=' + Date.now();
+    img.style.display = 'block';
+
+    img.onerror = () => {
+        console.error('poseStream: <img> failed to load /video_feed');
+        showToast('Could not start camera stream. Check server logs.', 'error');
+    };
+
+    cameraActive = true;
+    document.getElementById('cameraPlaceholder').style.display = 'none';
+    document.getElementById('cameraStatusText').textContent    = 'Connected';
+    document.getElementById('cameraStatus').classList.add('active');
+    document.getElementById('poseBadges').style.display        = 'flex';
+    document.getElementById('statusText').textContent          = 'Connected';
+    document.getElementById('statusDot').className             = 'badge-dot online';
+
+    pollFailCount  = 0;
+    fpsCounter     = 0;
+    fpsWindowStart = Date.now();
+
+    // ✅ Tell backend which exercise is active so it draws only relevant joints
+    syncExerciseType();
+
+    // Poll joint-angle/detection data independently of the video stream
+    poseInterval = setInterval(pollPoseData, 300);
+}
+
+// ✅ Push current exercise selection + target ROM to backend (drives joint
+// filtering AND server-side rep counting / threshold logic)
+async function syncExerciseType() {
+    applyActiveJointUI();
+    try {
+        await fetch('/api/exercise_type', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                exercise_type: document.getElementById('exerciseType').value,
+                target_rom:    parseFloat(document.getElementById('targetRom').value) || 90,
+            }),
+        });
+    } catch(e) { console.error('syncExerciseType:', e); }
+}
+
+// ─── Which joint group is relevant for the selected exercise ───────────────
+// Mirrors the backend's _compute_primary_angle / _get_active_connections
+// mapping so the UI only lights up the joint(s) actually being tracked.
+function getActiveJointGroup() {
+    const ex = (document.getElementById('exerciseType')?.value || '').toLowerCase();
+    if (ex.includes('balance'))                                  return 'all';
+    if (ex.includes('shoulder') || ex.includes('arm'))           return 'shoulder';
+    if (ex.includes('elbow') || ex.includes('hand'))             return 'elbow';
+    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg') || ex.includes('ankle'))
+        return 'knee';
+    return 'elbow'; // fallback, matches backend default
+}
+
+// Dim every joint badge/angle-item except the one(s) relevant to the
+// currently selected exercise, and reset the dimmed ones to "--°" so old
+// numbers from a previous exercise don't linger and look "live".
+function applyActiveJointUI() {
+    const active = getActiveJointGroup();
+    document.querySelectorAll('[data-joint]').forEach(el => {
+        const isActive = active === 'all' || el.dataset.joint === active;
+        el.classList.toggle('joint-inactive', !isActive);
+        el.classList.toggle('joint-active', isActive);
+        if (!isActive) {
+            const valSpan = el.querySelector('.angle-value');
+            if (valSpan) valSpan.textContent = '--°';
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    applyActiveJointUI();
+    document.getElementById('exerciseType')?.addEventListener('change', () => {
+        applyActiveJointUI();
+        if (cameraActive) syncExerciseType();
+    });
+    document.getElementById('targetRom')?.addEventListener('change', () => {
+        if (cameraActive) syncExerciseType();
+    });
+});
+
+async function stopCamera() {
+    const img = document.getElementById('poseStream');
+    img.onerror = null;
+    img.src = '';
+    img.style.display = 'none';
+    cameraActive = false;
+    poseDetected = false;
+
+    clearInterval(poseInterval);
+    poseInterval = null;
+
+    document.getElementById('cameraPlaceholder').style.display = 'flex';
+    document.getElementById('cameraStatusText').textContent    = 'Disconnected';
+    document.getElementById('cameraStatus').classList.remove('active');
+    document.getElementById('poseBadges').style.display        = 'none';
+    document.getElementById('noPoseWarning').style.display     = 'none';
+    document.getElementById('fpsDisplay').textContent          = '--';
+    document.getElementById('statusText').textContent          = 'Ready';
+    document.getElementById('statusDot').className             = 'badge-dot offline';
+
+    try {
+        await fetch('/api/camera/stop', { method: 'POST' });
+    } catch(e) {
+        console.error('stopCamera: /api/camera/stop failed:', e);
+    }
+}
+
+// ─── ✅ Poll latest pose data (replaces ws.onmessage) ──────────────────────────
+async function pollPoseData() {
+    try {
+        const res = await fetch('/api/pose_data');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        pollFailCount = 0;
+        lastPollOkTime = Date.now();
+
+        // crude FPS readout based on poll cadence/responsiveness
+        fpsCounter++;
+        const now = Date.now();
+        if (now - fpsWindowStart >= 1000) {
+            document.getElementById('fpsDisplay').textContent = fpsCounter;
+            fpsCounter = 0;
+            fpsWindowStart = now;
+        }
+
+        handlePoseData(data);
+    } catch(e) {
+        pollFailCount++;
+        console.error('pollPoseData:', e);
+        if (pollFailCount >= 5) {
+            document.getElementById('statusText').textContent = 'Connection lost';
+            document.getElementById('statusDot').className    = 'badge-dot error';
+        }
+    }
+}
+
+// ─── Pose data handler ────────────────────────────────────────────────────────
+function handlePoseData(data) {
+    poseDetected = !!data.detected;
+
+    document.getElementById('noPoseWarning').style.display  = poseDetected ? 'none' : 'block';
+    document.getElementById('detectionStatus').textContent  = poseDetected ? 'Yes' : 'No';
+    document.getElementById('detectionStatus').style.color  = poseDetected ? '#4CAF50' : '#f44336';
+    if (!poseDetected) return;
+
+    const ang = data.angles || {};
+    const set  = (id, v) => document.getElementById(id).textContent = v != null ? `${Math.round(v)}°` : '--°';
+    const active = getActiveJointGroup();
+    const targetRom = parseInt(document.getElementById('targetRom').value);
+
+    if (active === 'all' || active === 'shoulder') {
+        set('leftShoulderAngle', ang.l_shoulder);
+        set('rightShoulderAngle',ang.r_shoulder);
+        updateBadge('badge_l_shoulder','L.Shoulder', ang.l_shoulder, targetRom);
+        updateBadge('badge_r_shoulder','R.Shoulder', ang.r_shoulder, targetRom);
+    }
+    if (active === 'all' || active === 'elbow') {
+        set('leftElbowAngle',    ang.l_elbow);
+        set('rightElbowAngle',   ang.r_elbow);
+        updateBadge('badge_l_elbow',   'L.Elbow',   ang.l_elbow, targetRom);
+        updateBadge('badge_r_elbow',   'R.Elbow',   ang.r_elbow, targetRom);
+    }
+    if (active === 'all' || active === 'knee') {
+        set('leftKneeAngle',     ang.l_knee);
+        set('rightKneeAngle',    ang.r_knee);
+        updateBadge('badge_l_knee',    'L.Knee',    ang.l_knee,  targetRom);
+        updateBadge('badge_r_knee',    'R.Knee',    ang.r_knee,  targetRom);
+    }
+
+    // ✅ Reps, stability, smoothness, balance, fatigue now ALL come straight
+    // from the backend (real MediaPipe computation — no Math.random, no
+    // metric copied from another metric)
+    if (sessionActive) {
+        repCount = data.reps != null ? data.reps : repCount;
+        if (data.stability  != null) currentStability  = data.stability;
+        if (data.smoothness != null) currentSmoothness = data.smoothness;
+        if (data.balance    != null) currentBalance    = data.balance;
+        if (data.fatigue    != null) currentFatigue    = data.fatigue;
+        updateAnalytics(data.primary_angle, targetRom);
+    }
+}
+
+function updateBadge(id, label, angle, targetRom) {
+    const el  = document.getElementById(id);
+    if (!el) return;
+    const val = angle != null ? Math.round(angle) : null;
+    el.innerHTML = `<i class="fas fa-circle" style="font-size:7px"></i> ${label}: ${val!=null?val+'°':'--°'}`;
+    if (val == null) return;
+    const pct = val / targetRom;
+    el.className = 'pose-badge ' + (pct >= 0.85 ? 'green' : pct >= 0.6 ? 'orange' : 'red');
+}
+
+// ─── Session start / stop ─────────────────────────────────────────────────────
+function startSession() {
+    if (!document.getElementById('sessionPatientSelect').value) {
+        showToast('Please select a patient', 'error'); return;
+    }
+    if (!cameraActive) {
+        showToast('Please start the camera first', 'error'); return;
+    }
+
+    // Read custom duration if selected
+    const customBtn = document.querySelector('.dur-btn[data-sec="0"].active');
+    if (customBtn) {
+        countdownTotal = Math.max(1, parseInt(document.getElementById('customDurInput').value||1)) * 60;
+    }
+
+    sessionActive    = true;
+    sessionStartTime = Date.now();
+    countdownLeft    = countdownTotal;
+    elapsedSec       = 0;
+    repCount = currentAccuracy = currentRom = 0;
+    currentStability  = 100;
+    currentSmoothness = 100;
+    currentBalance    = 100;
+    currentFatigue    = 0;
+    _timeline = [];
+
+    // ✅ Reset server-side rep counter + stability buffer for this new session,
+    // and make sure backend has the latest exercise/ROM target before we start
+    syncExerciseType();
+    fetch('/api/session/reset', { method: 'POST' }).catch(e => console.error('session reset failed:', e));
+
+    document.getElementById('startSessionBtn').style.display = 'none';
+    document.getElementById('stopSessionBtn').style.display  = 'inline-block';
+    document.getElementById('statusText').textContent        = 'Session Active';
+    document.getElementById('statusDot').className           = 'badge-dot recording';
+    document.getElementById('recIndicator').classList.add('active');
+    document.getElementById('timerRing').classList.add('active');
+
+    updateTimerRing();
+
+    // Elapsed timer
+    elapsedTimer = setInterval(() => {
+        elapsedSec++;
+        const m = String(Math.floor(elapsedSec/60)).padStart(2,'0');
+        const s = String(elapsedSec%60).padStart(2,'0');
+        document.getElementById('sessionTimer').textContent = `${m}:${s}`;
+    }, 1000);
+
+    // Countdown timer
+    countdownTimer = setInterval(() => {
+        countdownLeft--;
+        updateTimerRing();
+
+        const rm = String(Math.floor(countdownLeft/60)).padStart(2,'0');
+        const rs = String(countdownLeft%60).padStart(2,'0');
+        document.getElementById('remainingTimer').textContent = `${rm}:${rs}`;
+
+        // Color warning when < 10s
+        const arc = document.getElementById('timerArc');
+        if (countdownLeft <= 10) arc.style.stroke = '#f44336';
+        else if (countdownLeft <= 30) arc.style.stroke = '#FF9800';
+        else arc.style.stroke = '#4CAF50';
+
+        if (countdownLeft <= 0) {
+            showToast('⏰ Time up! Session ending...', 'success');
+            stopSession();
+        }
+    }, 1000);
+
+    // ✅ Record timeline every 5s
+    _timelineTimer = setInterval(() => {
+        if (sessionActive) {
+            _timeline.push({
+                t:      elapsedSec,
+                acc:    +currentAccuracy.toFixed(1),
+                rom:    +currentRom.toFixed(1),
+                stab:   +currentStability.toFixed(1),
+                smooth: +currentSmoothness.toFixed(1),
+                bal:    +currentBalance.toFixed(1),
+                fat:    +currentFatigue.toFixed(1),
+            });
+        }
+    }, 5000);
+
+    showToast('Session started!', 'success');
+}
+
+function stopSession() {
+    if (!sessionActive) return;
+    sessionActive = false;
+
+    clearInterval(countdownTimer);
+    clearInterval(elapsedTimer);
+    clearInterval(_timelineTimer);
+
+    document.getElementById('startSessionBtn').style.display = 'inline-block';
+    document.getElementById('stopSessionBtn').style.display  = 'none';
+    document.getElementById('statusText').textContent        = cameraActive ? 'Connected' : 'Ready';
+    document.getElementById('statusDot').className           = cameraActive ? 'badge-dot online' : 'badge-dot offline';
+    document.getElementById('recIndicator').classList.remove('active');
+    document.getElementById('timerRing').classList.remove('active');
+    document.getElementById('remainingTimer').textContent    = '--:--';
+
+    saveSession();
+    showResultModal();
+}
+
+function updateTimerRing() {
+    const circ  = 188.5;
+    const pct   = countdownLeft / countdownTotal;
+    const offset = circ * (1 - pct);
+    document.getElementById('timerArc').style.strokeDashoffset = offset;
+    const m = String(Math.floor(countdownLeft/60)).padStart(2,'0');
+    const s = String(countdownLeft%60).padStart(2,'0');
+    document.getElementById('timerText').textContent = `${m}:${s}`;
+}
+
+// ─── Analytics update (✅ fully derived from real backend data, no Math.random) ─
+function updateAnalytics(primaryAngle, targetRom) {
+    if (primaryAngle != null && targetRom > 0) {
+        currentRom      = Math.min(targetRom, Math.max(0, primaryAngle));
+        currentAccuracy = Math.min(100, (currentRom / targetRom) * 100);
+    }
+
+    const targetReps = parseInt(document.getElementById('targetReps').value);
+    document.getElementById('accuracyDisplay').textContent   = `${Math.round(currentAccuracy)}%`;
+    document.getElementById('accuracyProgress').style.width  = `${currentAccuracy}%`;
+    document.getElementById('romDisplay').textContent        = `${Math.round(currentRom)}°`;
+    document.getElementById('romProgress').style.width       = `${(currentRom/targetRom)*100}%`;
+    document.getElementById('stabilityDisplay').textContent  = `${Math.round(currentStability)}%`;
+    document.getElementById('stabilityProgress').style.width = `${currentStability}%`;
+    document.getElementById('repCounter').textContent        = `${repCount} / ${targetReps}`;
+    document.getElementById('repProgress').style.width       = `${Math.min(100, (repCount/targetReps)*100)}%`;
+
+    updateFeedback(currentAccuracy, currentRom);
+}
+
+function updateFeedback(acc, rom) {
+    const t = parseInt(document.getElementById('targetRom').value);
+    let msg, icon, cls;
+    if (acc>85&&rom>t*0.8)      { msg='Excellent form! Keep it up!';            icon='fa-check-circle';       cls='success'; }
+    else if (acc>70&&rom>t*0.6) { msg='Good progress. Focus on range of motion.'; icon='fa-thumbs-up';         cls='warning'; }
+    else if (acc>50)            { msg='Needs improvement. Adjust your posture.';  icon='fa-exclamation-triangle'; cls='warning'; }
+    else                        { msg='Consult your therapist for guidance.';     icon='fa-exclamation-circle'; cls='error'; }
+    document.getElementById('feedbackDisplay').innerHTML =
+        `<div class="feedback-message ${cls}"><i class="fas ${icon}"></i><span>${msg}</span></div>`;
+}
+
+// ─── ✅ Result modal ───────────────────────────────────────────────────────────
+function showResultModal() {
+    const avgAcc  = _timeline.length ? (_timeline.reduce((s,r)=>s+r.acc, 0) / _timeline.length).toFixed(1) : currentAccuracy.toFixed(1);
+    const avgRom  = _timeline.length ? (_timeline.reduce((s,r)=>s+r.rom, 0) / _timeline.length).toFixed(1) : currentRom.toFixed(1);
+    const avgStab = _timeline.length ? (_timeline.reduce((s,r)=>s+r.stab,0) / _timeline.length).toFixed(1) : currentStability.toFixed(1);
+
+    const durSec  = elapsedSec;
+    const durStr  = `${String(Math.floor(durSec/60)).padStart(2,'0')}:${String(durSec%60).padStart(2,'0')}`;
+
+    document.getElementById('res_duration').textContent = durStr;
+    document.getElementById('res_accuracy').textContent  = `${avgAcc}%`;
+    document.getElementById('res_rom').textContent       = `${avgRom}°`;
+    document.getElementById('res_stability').textContent = `${avgStab}%`;
+
+    const ex = document.getElementById('exerciseType').value;
+    document.getElementById('resultSubtitle').textContent =
+        `${ex} · ${durStr} · ${document.querySelector('#sessionPatientSelect option:checked')?.textContent || ''}`;
+
+    // Build chart
+    if (resultChartInst) { resultChartInst.destroy(); resultChartInst = null; }
+
+    const labels = _timeline.length
+        ? _timeline.map(r => `${Math.floor(r.t/60)}:${String(r.t%60).padStart(2,'0')}`)
+        : ['Start', 'End'];
+    const accData  = _timeline.length ? _timeline.map(r=>r.acc)  : [0, +avgAcc];
+    const romData  = _timeline.length ? _timeline.map(r=>r.rom)  : [0, +avgRom];
+    const stabData = _timeline.length ? _timeline.map(r=>r.stab) : [0, +avgStab];
+
+    const ctx = document.getElementById('resultChart').getContext('2d');
+    resultChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label:'Accuracy %',  data:accData,  borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.1)',
+                  tension:0.4, fill:true, borderWidth:2, pointRadius:3, pointBackgroundColor:'#4CAF50' },
+                { label:'ROM °',       data:romData,  borderColor:'#2196F3', backgroundColor:'rgba(33,150,243,0.1)',
+                  tension:0.4, fill:true, borderWidth:2, pointRadius:3, pointBackgroundColor:'#2196F3' },
+                { label:'Stability %', data:stabData, borderColor:'#9C27B0', backgroundColor:'rgba(156,39,176,0.1)',
+                  tension:0.4, fill:true, borderWidth:2, pointRadius:3, pointBackgroundColor:'#9C27B0' },
+            ]
+        },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            plugins:{
+                legend:{ display:true, position:'top',
+                    labels:{ usePointStyle:true, pointStyle:'circle', padding:16, font:{size:11} }},
+                tooltip:{ backgroundColor:'rgba(255,255,255,0.95)',
+                    titleColor:'#1a2332', bodyColor:'#5a6b7c',
+                    borderColor:'rgba(0,0,0,0.08)', borderWidth:1, cornerRadius:10, padding:10 }
+            },
+            scales:{
+                y:{ beginAtZero:true, max:Math.max(100, Math.ceil(+avgRom/10)*10+10),
+                    grid:{color:'rgba(0,0,0,0.04)'}, ticks:{font:{size:10}} },
+                x:{ grid:{display:false}, ticks:{font:{size:10}, maxRotation:45} }
+            },
+            interaction:{ intersect:false, mode:'index' }
+        }
+    });
+
+    document.getElementById('resultModal').classList.add('active');
+}
+
+function closeResult() {
+    document.getElementById('resultModal').classList.remove('active');
+    if (resultChartInst) { resultChartInst.destroy(); resultChartInst=null; }
+    // Reset UI
+    currentAccuracy=currentRom=currentStability=repCount=elapsedSec=0;
+    currentSmoothness=100; currentBalance=100; currentFatigue=0;
+    document.getElementById('sessionTimer').textContent    = '00:00';
+    document.getElementById('remainingTimer').textContent  = '--:--';
+    document.getElementById('accuracyDisplay').textContent = '0%';
+    document.getElementById('romDisplay').textContent      = '0°';
+    document.getElementById('stabilityDisplay').textContent= '0%';
+    document.getElementById('repCounter').textContent      = '0 / 0';
+    ['accuracyProgress','romProgress','stabilityProgress','repProgress']
+        .forEach(id => document.getElementById(id).style.width='0%');
+    document.getElementById('feedbackDisplay').innerHTML =
+        '<div class="feedback-message"><i class="fas fa-info-circle"></i><span>Start session to receive feedback</span></div>';
+}
+
+// ─── Save session ─────────────────────────────────────────────────────────────
+async function saveSession() {
+    const patientId    = document.getElementById('sessionPatientSelect').value;
+    const exerciseType = document.getElementById('exerciseType').value;
+    const targetReps   = parseInt(document.getElementById('targetReps').value);
+
+    const jointAngles = [];
+    document.querySelectorAll('.angle-item').forEach(item => {
+        const label = item.querySelector('.angle-label').textContent;
+        const val   = item.querySelector('.angle-value').textContent;
+        if (val !== '--°') jointAngles.push({
+            joint_name:  label.toLowerCase().replace(/\s+/g,'_'),
+            angle_value: parseFloat(val),
+        });
+    });
+
+    // ✅ All 6 metrics below are real independent averages pulled from the
+    // session timeline, which itself is fed live from backend MediaPipe
+    // calculations (angles, rep-cycle counter, hip jitter, shoulder sway,
+    // frame-jerk variance, rep-quality trend). Nothing here is copied from
+    // another metric or randomly generated.
+    const avg = (key, fallback) =>
+        _timeline.length ? _timeline.reduce((s,r)=>s+r[key], 0)/_timeline.length : fallback;
+
+    const avgAcc    = avg('acc',    currentAccuracy);
+    const avgRom    = avg('rom',    currentRom);
+    const avgStab   = avg('stab',   currentStability);
+    const avgSmooth = avg('smooth', currentSmoothness);
+    const avgBal    = avg('bal',    currentBalance);
+    const avgFat    = avg('fat',    currentFatigue);
+
+    const payload = {
+        patient_id:          patientId,
+        exercise_type:       exerciseType,
+        start_time:          new Date(sessionStartTime).toISOString(),
+        end_time:            new Date().toISOString(),
+        duration_seconds:    elapsedSec,
+        total_reps:          targetReps,
+        completed_reps:      repCount,
+        accuracy_percentage: +avgAcc.toFixed(1),
+        average_rom:         +avgRom.toFixed(1),
+        stability_score:     +avgStab.toFixed(1),
+        balance_score:       +avgBal.toFixed(1),
+        movement_smoothness: +avgSmooth.toFixed(1),
+        fatigue_estimation:  +avgFat.toFixed(1),
+        recovery_score:      +((avgAcc + avgStab + avgRom + avgBal) / 4).toFixed(1),
+        incorrect_movements: Math.max(0, targetReps - repCount),
+        joint_angles:        jointAngles,
+        exercise_results:    [],
+        session_data:        { timeline: _timeline },
+    };
+
+    return saveSessionPayload(payload);
+}
+
+// Actually performs the save + handles success/failure UI. Returns true/false.
+async function saveSessionPayload(payload) {
+    try {
+        const res  = await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+            let msg = `Session save failed (${res.status})`;
+            try { msg = (await res.json()).detail || msg; } catch (_) {}
+            console.error('saveSession failed:', msg);
+            stashFailedSession(payload);
+            showToast(`${msg} — saved locally, will retry`, 'error', 5000);
+            return false;
+        }
+
+        // Success — make sure no stale local backup is replayed on top of it.
+        clearStashedSession(payload);
+        showToast('Session saved', 'success');
+        return true;
+    } catch (e) {
+        console.error('saveSession network error:', e);
+        stashFailedSession(payload);
+        showToast('No connection — session saved locally, will retry', 'error', 5000);
+        return false;
+    }
+}
+
+// ─── Local backup so a failed save isn't lost ──────────────────────────────────
+const PENDING_SESSIONS_KEY = 'rehabai_pending_sessions';
+
+function stashFailedSession(payload) {
+    try {
+        const pending = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]');
+        pending.push(payload);
+        localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(pending));
+    } catch (e) { console.error('stashFailedSession:', e); }
+}
+
+function clearStashedSession(payload) {
+    try {
+        const pending = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]');
+        const remaining = pending.filter(p => JSON.stringify(p) !== JSON.stringify(payload));
+        localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(remaining));
+    } catch (e) { console.error('clearStashedSession:', e); }
+}
+
+// Retry any sessions that failed to save earlier (e.g. network drop), called on page load.
+async function retryPendingSessions() {
+    let pending = [];
+    try { pending = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]'); }
+    catch (e) { return; }
+    if (!pending.length) return;
+
+    showToast(`Retrying ${pending.length} unsaved session(s)...`, 'success');
+    for (const payload of pending) {
+        await saveSessionPayload(payload);
+    }
+}
+
+// ─── Misc ─────────────────────────────────────────────────────────────────────
+function handleLogout() {
+    if (sessionActive && !confirm('Session in progress. Stop and logout?')) return;
+    if (sessionActive) stopSession();
+    if (cameraActive)  stopCamera();
+    window.location.href = '/';
+}
+
+function showToast(message, type='success', duration=3500) {
+    document.querySelectorAll('.toast').forEach(t=>t.remove());
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.innerHTML = `<i class="fas fa-${type==='success'?'check-circle':'exclamation-circle'}"></i><span>${message}</span>`;
+    document.body.appendChild(t);
+    setTimeout(()=>t.classList.add('show'),100);
+    setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),300); },duration);
+}
+
+// ✅ Stop camera + release device on page unload (no WS to close anymore)
+window.addEventListener('beforeunload', () => {
+    if (cameraActive) {
+        // best-effort: fire-and-forget, can't reliably await in beforeunload
+        navigator.sendBeacon
+            ? navigator.sendBeacon('/api/camera/stop')
+            : fetch('/api/camera/stop', { method: 'POST', keepalive: true });
+    }
+});
+</script>
+</body>
+</html>

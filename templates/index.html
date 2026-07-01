@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rehabilitation AI System</title>
+    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loader-container">
+            <div class="loader-ring"></div>
+            <div class="loader-text">Initializing Rehabilitation System...</div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-effect">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <img class="logo-icon" src="/assets/logo.png?v=2" alt="MedNova logo" width="44" height="44">
+                    <div class="logo-text">
+                        <span class="logo-title">MedNova</span>
+                        <span class="logo-subtitle">Therapy System</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/dashboard" class="nav-item active"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
+                <a href="/patients"  class="nav-item"><i class="fas fa-users"></i><span>Patients</span></a>
+                <a href="/session"   class="nav-item"><i class="fas fa-video"></i><span>Start Session</span></a>
+                <a href="/reports"   class="nav-item"><i class="fas fa-file-alt"></i><span>Reports</span></a>
+                <a href="/analytics" class="nav-item"><i class="fas fa-chart-line"></i><span>Analysis</span></a>
+                <a href="#"          class="nav-item"><i class="fas fa-cog"></i><span>Settings</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot" id="systemDot"></span>
+                    <span class="status-text" id="systemStatusText">Checking...</span>
+                </div>
+                <div class="version-info">v2.0.0</div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <header class="top-bar glass-effect">
+                <div class="top-bar-left">
+                    <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                    <div class="breadcrumb">
+                        <span>Home</span>
+                        <i class="fas fa-chevron-right"></i>
+                        <span class="active">Dashboard</span>
+                    </div>
+                </div>
+                <div class="top-bar-right">
+                    <div class="patient-selector">
+                        <select id="patientSelect" class="glass-select">
+                            <option value="">Select Patient</option>
+                        </select>
+                    </div>
+                    <div class="status-badge">
+                        <span class="badge-dot" id="aiBadgeDot"></span>
+                        <span id="aiStatusText">Checking...</span>
+                    </div>
+                    <div class="camera-status">
+                        <i class="fas fa-camera"></i>
+                        <span id="cameraStatusText">Disconnected</span>
+                    </div>
+                    <button class="logout-btn" onclick="handleLogout()">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Page Content -->
+            <div class="content-area">
+
+                <!-- Hero Section -->
+                <section class="hero-section glass-effect">
+                    <div class="hero-content">
+                        <h1 class="hero-title">Welcome to MedNova</h1>
+                        <p class="hero-subtitle">Intelligent physiotherapy training system powered by AI</p>
+                        <div class="hero-stats">
+                            <div class="hero-stat">
+                                <span class="stat-number" id="totalPatients">
+                                    <i class="fas fa-spinner fa-spin" style="font-size:1rem"></i>
+                                </span>
+                                <span class="stat-label">Active Patients</span>
+                            </div>
+                            <div class="hero-stat">
+                                <span class="stat-number" id="totalSessions">
+                                    <i class="fas fa-spinner fa-spin" style="font-size:1rem"></i>
+                                </span>
+                                <span class="stat-label">Total Sessions</span>
+                            </div>
+                            <div class="hero-stat">
+                                <span class="stat-number" id="avgAccuracy">
+                                    <i class="fas fa-spinner fa-spin" style="font-size:1rem"></i>
+                                </span>
+                                <span class="stat-label">Avg Accuracy</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hero-actions">
+                        <a href="/session"  class="btn-primary"><i class="fas fa-play"></i> Start New Session</a>
+                        <a href="/patients" class="btn-secondary"><i class="fas fa-user-plus"></i> Add Patient</a>
+                    </div>
+                </section>
+
+                <!-- Quick Stats -->
+                <div class="stats-grid" id="statsGrid">
+                    <!-- Populated by JS -->
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="activity-section glass-effect">
+                    <div class="section-header">
+                        <h3>Recent Sessions</h3>
+                        <a href="/reports" class="view-all">View All</a>
+                    </div>
+                    <div class="activity-list" id="recentActivity">
+                        <div class="activity-placeholder">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>Loading recent activity...</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+    // ─── Boot ─────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Hide loading overlay
+        setTimeout(() => {
+            const ov = document.getElementById('loadingOverlay');
+            if (ov) { ov.classList.add('hidden'); setTimeout(() => ov.remove(), 500); }
+        }, 600);
+
+        document.getElementById('menuToggle')?.addEventListener('click', () =>
+            document.querySelector('.sidebar').classList.toggle('active'));
+
+        await Promise.all([checkHealth(), loadPatients(), loadDashboardData()]);
+    });
+
+    // ─── Health ───────────────────────────────────────────────────────────────
+    async function checkHealth() {
+        try {
+            const d = await (await fetch('/api/health')).json();
+
+            const dot     = document.getElementById('systemDot');
+            const sysText = document.getElementById('systemStatusText');
+            const camText = document.getElementById('cameraStatusText');
+            const aiDot   = document.getElementById('aiBadgeDot');
+            const aiText  = document.getElementById('aiStatusText');
+
+            const ok = d.status === 'healthy';
+            dot.className       = 'status-dot ' + (ok ? 'online' : 'offline');
+            sysText.textContent = ok ? 'System Online' : 'System Error';
+            camText.textContent = d.camera_running   ? 'Connected'  : 'Disconnected';
+            aiDot.style.background = d.mediapipe_ready ? '#4CAF50' : '#f44336';
+            aiText.textContent  = d.mediapipe_ready  ? 'AI Ready'  : 'AI Offline';
+        } catch {
+            document.getElementById('systemStatusText').textContent = 'Offline';
+        }
+    }
+
+    // ─── Patients select ──────────────────────────────────────────────────────
+    async function loadPatients() {
+        try {
+            const patients = await (await fetch('/api/patients')).json();
+            const sel = document.getElementById('patientSelect');
+            patients.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id; o.textContent = p.name;
+                sel.appendChild(o);
+            });
+        } catch(e) { console.error('loadPatients:', e); }
+    }
+
+    // ─── Dashboard data ───────────────────────────────────────────────────────
+    async function loadDashboardData() {
+        try {
+            const data = await (await fetch('/api/dashboard')).json();
+            const s    = data.statistics;
+
+            // Hero numbers
+            document.getElementById('totalPatients').textContent = s.total_patients;
+            document.getElementById('totalSessions').textContent = s.total_sessions;
+            document.getElementById('avgAccuracy').textContent   = s.avg_accuracy + '%';
+
+            // Improvement: week accuracy vs month accuracy
+            const weekAcc  = data.weekly?.accuracy  ?? 0;
+            const monthAcc = data.monthly?.accuracy ?? 1;
+            const imp      = (((weekAcc - monthAcc) / monthAcc) * 100).toFixed(1);
+            const impSign  = parseFloat(imp) >= 0 ? '+' : '';
+            const impColor = parseFloat(imp) >= 0 ? '#4CAF50' : '#f44336';
+            const impArrow = parseFloat(imp) >= 0 ? 'fa-arrow-up' : 'fa-arrow-down';
+
+            // Stats grid
+            const stats = [
+                { icon: 'fa-calendar-check',    label: "Today's Sessions",    value: s.today_sessions,       color: '#4CAF50' },
+                { icon: 'fa-check-circle',       label: 'Exercises Completed', value: s.completed_exercises,  color: '#2196F3' },
+                { icon: 'fa-bullseye',           label: 'Recovery Score',      value: s.recovery_score + '%', color: '#FF9800' },
+                { icon: 'fa-exclamation-triangle', label: 'Incorrect Movements', value: s.incorrect_movements, color: '#f44336' },
+                { icon: 'fa-shield-alt',         label: 'Avg Stability',       value: s.avg_stability + '%',  color: '#9C27B0' },
+                {
+                    icon: impArrow,
+                    label: 'Weekly Improvement',
+                    value: impSign + imp + '%',
+                    color: impColor,
+                    trendOverride: true
+                },
+            ];
+
+            document.getElementById('statsGrid').innerHTML = stats.map(st => `
+                <div class="stat-card glass-effect animate-slide-up">
+                    <div class="stat-icon" style="background:${st.color}20; color:${st.color}">
+                        <i class="fas ${st.icon}"></i>
+                    </div>
+                    <div class="stat-content">
+                        <span class="stat-value">${st.value}</span>
+                        <span class="stat-label">${st.label}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Recent activity
+            renderRecentActivity(data.progress || []);
+
+        } catch(e) {
+            console.error('loadDashboardData:', e);
+            document.getElementById('statsGrid').innerHTML =
+                '<p style="color:red;padding:1rem">Failed to load stats.</p>';
+        }
+    }
+
+    // ─── Recent activity ──────────────────────────────────────────────────────
+    function renderRecentActivity(progress) {
+        const list = document.getElementById('recentActivity');
+
+        if (!progress.length) {
+            list.innerHTML = `
+                <div class="activity-empty">
+                    <i class="fas fa-inbox"></i>
+                    <span>No recent sessions</span>
+                    <span class="empty-sub">Start a session to track progress</span>
+                </div>`;
+            return;
+        }
+
+        // Sort desc by date, take last 5
+        const recent = [...progress]
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .slice(0, 5);
+
+        list.innerHTML = recent.map(item => {
+            const good    = item.accuracy >= 80;
+            const accColor = good ? '#4CAF50' : '#FF9800';
+            const label    = item.accuracy >= 85 ? 'Excellent'
+                           : item.accuracy >= 70 ? 'Good'
+                           : 'Needs Work';
+            return `
+            <div class="activity-item animate-slide-up">
+                <div class="activity-icon" style="background:${accColor}20; color:${accColor}">
+                    <i class="fas fa-${good ? 'check-circle' : 'exclamation-circle'}"></i>
+                </div>
+                <div class="activity-details">
+                    <div class="activity-title">${item.exercise}</div>
+                    <div class="activity-meta">
+                        <span>${item.date}</span>
+                        <span>•</span>
+                        <span>Accuracy: ${item.accuracy.toFixed(1)}%</span>
+                        <span>•</span>
+                        <span>ROM: ${item.rom.toFixed(1)}°</span>
+                        <span>•</span>
+                        <span>Stability: ${item.stability.toFixed(1)}%</span>
+                    </div>
+                </div>
+                <div class="activity-status">
+                    <span class="status-badge ${good ? 'success' : 'warning'}">${label}</span>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ─── Misc ─────────────────────────────────────────────────────────────────
+    function handleLogout() {
+        if (confirm('Are you sure you want to logout?')) window.location.href = '/';
+    }
+    </script>
+</body>
+</html>
