@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Remote Session - MedNova</title>
+<link rel="stylesheet" href="/static/style.css?v=2">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    html, body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #0d1117;
+    }
+    .patient-app {
+        height: 100vh;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Top bar */
+    .patient-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        z-index: 20;
+    }
+    .patient-brand { display: flex; align-items: center; gap: 8px; color: #fff; font-weight: 700; }
+    .conn-badge {
+        display: flex; align-items: center; gap: 6px;
+        padding: 5px 12px; border-radius: 20px;
+        background: rgba(255,255,255,0.12); color: #fff;
+        font-size: 12px; font-weight: 600;
+    }
+    .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #f44336; }
+    .conn-dot.live { background: #4CAF50; animation: pulse-dot 1.4s infinite; }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* Pre-join screen */
+    .prejoin-screen {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 24px;
+        color: #fff;
+    }
+    .prejoin-screen i.big-icon { font-size: 52px; color: var(--medical-green); margin-bottom: 18px; }
+    .prejoin-screen h2 { margin: 0 0 6px; font-size: 22px; }
+    .prejoin-screen p { color: rgba(255,255,255,0.65); margin: 0 0 26px; max-width: 320px; font-size: 14px; }
+    .join-btn {
+        background: var(--medical-green);
+        color: #06210a;
+        border: none;
+        padding: 14px 32px;
+        border-radius: 30px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex; align-items: center; gap: 8px;
+        box-shadow: 0 8px 24px rgba(145,228,148,0.35);
+    }
+    .join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error-screen { color: #f44336 !important; }
+
+    /* Main call view */
+    .call-view { position: relative; flex: 1; display: none; background: #000; }
+    .call-view.active { display: block; }
+
+    #localVideo {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+    }
+    #overlayCanvas {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        transform: scaleX(-1);
+        pointer-events: none;
+    }
+
+    .doctor-pip {
+        position: absolute;
+        top: 16px; right: 16px;
+        width: 110px; height: 150px;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #1a1a1a;
+        border: 2px solid rgba(255,255,255,0.25);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        z-index: 15;
+    }
+    .doctor-pip video { width: 100%; height: 100%; object-fit: cover; }
+    .doctor-pip .pip-label {
+        position: absolute; bottom: 4px; left: 6px;
+        color: #fff; font-size: 10px; font-weight: 700;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    }
+    .doctor-pip.waiting {
+        display: flex; align-items: center; justify-content: center;
+        color: rgba(255,255,255,0.5); font-size: 11px; text-align: center; padding: 6px;
+    }
+
+    .no-pose-chip {
+        position: absolute;
+        bottom: 90px; left: 50%; transform: translateX(-50%);
+        background: rgba(244,67,54,0.85); color: #fff;
+        font-size: 12px; font-weight: 600;
+        padding: 5px 14px; border-radius: 20px;
+        display: none; z-index: 15; white-space: nowrap;
+    }
+    .no-pose-chip.show { display: block; }
+
+    .control-bar {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        display: flex; align-items: center; justify-content: center;
+        gap: 16px;
+        padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+        background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
+        z-index: 15;
+    }
+    .ctrl-btn {
+        width: 52px; height: 52px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255,255,255,0.14);
+        color: #fff;
+        font-size: 18px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+    }
+    .ctrl-btn.off { background: rgba(244,67,54,0.85); }
+    .ctrl-btn.leave { background: #f44336; width: 60px; }
+
+    .ended-overlay {
+        position: fixed; inset: 0;
+        background: rgba(13,17,23,0.97);
+        display: none;
+        align-items: center; justify-content: center;
+        flex-direction: column;
+        text-align: center;
+        color: #fff;
+        z-index: 100;
+        padding: 24px;
+    }
+    .ended-overlay.active { display: flex; }
+    .ended-overlay i { font-size: 46px; color: var(--medical-green); margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<div class="patient-app">
+
+    <div class="patient-topbar">
+        <div class="patient-brand"><img class="logo-icon" src="/assets/logo.png?v=2" alt="MedNova logo" width="44" height="44"><span>MedNova Remote Session</span></div>
+        <div class="conn-badge"><span class="conn-dot" id="connDot"></span><span id="connText">Connecting...</span></div>
+    </div>
+
+    <div class="prejoin-screen" id="prejoinScreen">
+        <i class="fas fa-video big-icon" id="prejoinIcon"></i>
+        <h2 id="prejoinTitle">Loading session...</h2>
+        <p id="prejoinSub">Please wait a moment.</p>
+        <button class="join-btn" id="joinBtn" style="display:none" onclick="joinSession()">
+            <i class="fas fa-camera"></i> Turn on Camera &amp; Join
+        </button>
+    </div>
+
+    <div class="call-view" id="callView">
+        <video id="localVideo" autoplay playsinline muted></video>
+        <canvas id="overlayCanvas"></canvas>
+
+        <div class="doctor-pip waiting" id="doctorPip">
+            <span>Waiting for<br>doctor to join...</span>
+        </div>
+
+        <div class="no-pose-chip" id="noPoseChip"><i class="fas fa-exclamation-triangle"></i> Move into frame</div>
+
+        <div class="control-bar">
+            <button class="ctrl-btn" id="micBtn" onclick="toggleMic()"><i class="fas fa-microphone"></i></button>
+            <button class="ctrl-btn" id="camBtn" onclick="toggleCam()"><i class="fas fa-video"></i></button>
+            <button class="ctrl-btn leave" onclick="leaveCall()"><i class="fas fa-phone-slash"></i></button>
+        </div>
+    </div>
+
+</div>
+
+<div class="ended-overlay" id="endedOverlay">
+    <i class="fas fa-check-circle"></i>
+    <h2 id="endedTitle">Session Ended</h2>
+    <p id="endedSub" style="color:rgba(255,255,255,0.6);max-width:320px">Your doctor has ended this session. Thank you!</p>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver }
+    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const ROOM_ID = "{{ room_id }}";
+const TOKEN   = new URLSearchParams(window.location.search).get('token') || '';
+
+let localStream      = null;
+let peerConn          = null;
+let signalWs           = null;
+let poseLandmarker     = null;
+let rafId               = null;
+let micOn = true, camOn = true;
+let doctorAlreadyPresent = false;
+let metricsIntervalId  = null;
+let lastLandmarks       = null;
+
+// ───  Exercise config pushed by the doctor (session_config message) ──────
+let currentExerciseType = null;
+let currentTargetRom    = 90;
+
+// ───  Real rep-counting + stability/smoothness/balance/fatigue tracking —
+// mirrors app.py's local-session logic (_update_rep_count, _update_stability,
+// etc.) so remote sessions get the same, non-random, independently-derived
+// metrics as an in-clinic session. ──────────────────────────────────────────
+let repCount = 0, repStage = null;
+let jitterBuffer = [];      // hip-center [x,y] samples, mirrors _landmark_jitter_buffer (maxlen 20)
+let stabilityScore = 100;
+let velocityBuffer = [];    // frame-to-frame primary-angle deltas (maxlen 15)
+let lastPrimaryAngle = null;
+let smoothnessScore = 100;
+let swayBuffer = [];        // shoulder-midpoint x samples (maxlen 20)
+let balanceScore = 100;
+let repQualityBuffer = [];  // per-rep quality % (maxlen 30)
+let fatigueScore = 0;
+let lastFatigueRepCount = 0;
+
+function computePrimaryAngle(angles, exerciseType) {
+    const ex = (exerciseType || '').toLowerCase();
+    const avg = (...vals) => {
+        vals = vals.filter(v => v != null);
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    if (ex.includes('shoulder') || ex.includes('arm')) return avg(angles.left_shoulder, angles.right_shoulder);
+    if (ex.includes('elbow'))                          return avg(angles.left_elbow, angles.right_elbow);
+    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg') || ex.includes('ankle'))
+        return avg(angles.left_knee, angles.right_knee);
+    return avg(angles.left_elbow, angles.right_elbow, angles.left_knee, angles.right_knee);
+}
+
+function updateRepCount(primaryAngle, targetRom) {
+    if (primaryAngle == null || targetRom <= 0) return repCount;
+    const highThresh = targetRom * 0.80;
+    const lowThresh   = targetRom * 0.35;
+    if (primaryAngle >= highThresh) {
+        if (repStage === 'down') repCount++;
+        repStage = 'up';
+    } else if (primaryAngle <= lowThresh) {
+        repStage = 'down';
+    }
+    return repCount;
+}
+
+function pstdev(arr) {
+    if (arr.length < 2) return 0;
+    const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+    return Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
+}
+
+function updateStability(lm) {
+    if (!lm[23] || !lm[24]) return stabilityScore;
+    const hipX = (lm[23].x + lm[24].x) / 2;
+    const hipY = (lm[23].y + lm[24].y) / 2;
+    jitterBuffer.push([hipX, hipY]);
+    if (jitterBuffer.length > 20) jitterBuffer.shift();
+    if (jitterBuffer.length >= 5) {
+        const xs = jitterBuffer.map(p => p[0]);
+        const ys = jitterBuffer.map(p => p[1]);
+        const jitter = pstdev(xs) + pstdev(ys);
+        stabilityScore = Math.round(Math.max(0, Math.min(100, 100 - jitter * 4000)) * 10) / 10;
+    }
+    return stabilityScore;
+}
+
+function updateSmoothness(primaryAngle) {
+    if (primaryAngle == null) return smoothnessScore;
+    if (lastPrimaryAngle != null) {
+        velocityBuffer.push(Math.abs(primaryAngle - lastPrimaryAngle));
+        if (velocityBuffer.length > 15) velocityBuffer.shift();
+    }
+    lastPrimaryAngle = primaryAngle;
+    if (velocityBuffer.length >= 5) {
+        const jerkVariance = pstdev(velocityBuffer);
+        smoothnessScore = Math.round(Math.max(0, Math.min(100, 100 - jerkVariance * 8)) * 10) / 10;
+    }
+    return smoothnessScore;
+}
+
+function updateBalance(lm) {
+    if (!lm[11] || !lm[12]) return balanceScore;
+    const shX = (lm[11].x + lm[12].x) / 2;
+    swayBuffer.push(shX);
+    if (swayBuffer.length > 20) swayBuffer.shift();
+    if (swayBuffer.length >= 5) {
+        const sway = pstdev(swayBuffer);
+        balanceScore = Math.round(Math.max(0, Math.min(100, 100 - sway * 5000)) * 10) / 10;
+    }
+    return balanceScore;
+}
+
+function recordRepQuality(peakAngle, targetRom) {
+    if (peakAngle == null || targetRom <= 0) return;
+    const quality = Math.max(0, Math.min(100, (peakAngle / targetRom) * 100));
+    repQualityBuffer.push(quality);
+    if (repQualityBuffer.length > 30) repQualityBuffer.shift();
+    const n = repQualityBuffer.length;
+    if (n >= 4) {
+        const half   = Math.floor(n / 2);
+        const early  = repQualityBuffer.slice(0, half);
+        const recent = repQualityBuffer.slice(half);
+        const earlyAvg  = early.reduce((s, v) => s + v, 0) / early.length;
+        const recentAvg = recent.reduce((s, v) => s + v, 0) / recent.length;
+        const decline = Math.max(0, earlyAvg - recentAvg);
+        fatigueScore = Math.round(Math.min(100, decline * 2.5) * 10) / 10;
+    }
+}
+
+function resetExerciseMetrics() {
+    repCount = 0; repStage = null;
+    jitterBuffer = []; stabilityScore = 100;
+    velocityBuffer = []; lastPrimaryAngle = null; smoothnessScore = 100;
+    swayBuffer = []; balanceScore = 100;
+    repQualityBuffer = []; fatigueScore = 0; lastFatigueRepCount = 0;
+}
+
+const localVideo    = document.getElementById('localVideo');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const overlayCtx    = overlayCanvas.getContext('2d');
+
+// ─── Low-res detection canvas — mirrors app.py's CameraManager, which
+// captures/processes at 320x240 instead of full resolution ("halves pixel
+// count vs 640x480, ~4x faster inference"). patient.html was feeding the
+// FULL 960x720 getUserMedia video straight into detectForVideo, which is
+// heavy enough on phone CPUs/GPUs to build up several seconds of visible
+// lag between the real movement and the drawn skeleton. The <video>
+// element (shown to the patient, and sent to the doctor over WebRTC)
+// keeps its full capture quality — only the frame handed to the pose
+// model is downscaled, same as the backend's dedicated low-res capture.
+const DETECT_MAX_DIM = 240;
+const detectCanvas = document.createElement('canvas');
+const detectCtx     = detectCanvas.getContext('2d');
+let detectCanvasReady = false;
+
+function updateDetectCanvasSize() {
+    const vw = localVideo.videoWidth, vh = localVideo.videoHeight;
+    if (!vw || !vh) return;
+    const scale = DETECT_MAX_DIM / Math.max(vw, vh);
+    detectCanvas.width  = Math.max(1, Math.round(vw * scale));
+    detectCanvas.height = Math.max(1, Math.round(vh * scale));
+    detectCanvasReady = true;
+}
+
+// Same 6-joint scheme used on the doctor's session page (shoulder/elbow/knee, L+R)
+const JOINT_TRIPLETS = {
+    left_shoulder:  [13, 11, 23],
+    right_shoulder: [14, 12, 24],
+    left_elbow:     [11, 13, 15],
+    right_elbow:    [12, 14, 16],
+    left_knee:      [23, 25, 27],
+    right_knee:     [24, 26, 28],
+};
+
+// Landmark index map + exercise → active joints/lines filter 
+// Mirrors app.py's _KEY_LANDMARKS / _get_active_connections exactly, so the
+// remote patient view shows the SAME filtered skeleton (only the joints
+// relevant to the doctor-selected exercise) instead of the full 33-point
+// body that MediaPipe's default POSE_CONNECTIONS draws.
+const LM_INDEX = {
+    nose: 0, left_shoulder: 11, right_shoulder: 12,
+    left_elbow: 13, right_elbow: 14, left_wrist: 15, right_wrist: 16,
+    left_hip: 23, right_hip: 24,
+    left_knee: 25, right_knee: 26, left_ankle: 27, right_ankle: 28,
+};
+
+function getActiveConnections(exerciseType) {
+    const ex = (exerciseType || '').toLowerCase();
+    const LS='left_shoulder', RS='right_shoulder', LE='left_elbow', RE='right_elbow',
+          LW='left_wrist', RW='right_wrist', LH='left_hip', RH='right_hip',
+          LK='left_knee', RK='right_knee', LA='left_ankle', RA='right_ankle';
+
+    if (ex.includes('elbow'))  return [[LS,LE],[LE,LW],[RS,RE],[RE,RW]];
+    if (ex.includes('hand'))   return [[LE,LW],[RE,RW]];
+    if (ex.includes('ankle'))  return [[LK,LA],[RK,RA]];
+    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg'))
+        return [[LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+    if (ex.includes('hip'))    return [[LS,LH],[RS,RH],[LH,LK],[RH,RK]];
+    if (ex.includes('shoulder') || ex.includes('arm'))
+        return [[LS,LE],[RS,RE],[LS,LH],[RS,RH]];
+    if (ex.includes('balance'))
+        return [[LS,RS],[LS,LH],[RS,RH],[LH,RH],
+                [LS,LE],[LE,LW],[RS,RE],[RE,RW],
+                [LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+    // Fallback: arms + legs, no torso clutter (same as backend default)
+    return [[LS,LE],[LE,LW],[RS,RE],[RE,RW],[LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+}
+
+// Cover-crop-aware landmark → canvas pixel transform 
+// #localVideo uses `object-fit: cover`, meaning the displayed video is
+// cropped/scaled to fill its box while MediaPipe's normalized landmark
+// coords (0..1) are relative to the FULL, uncropped camera frame. Drawing
+// them straight onto the canvas (as DrawingUtils' default drawConnectors/
+// drawLandmarks does) ignores that crop — so the skeleton drifts away from
+// the actual limb position, worse near the frame edges and very noticeable
+// during fast movement. This computes the same scale/offset the browser
+// applies for `cover` so dots/lines land exactly on the visible video.
+function getCoverTransform() {
+    const vw = localVideo.videoWidth, vh = localVideo.videoHeight;
+    const cw = overlayCanvas.width, ch = overlayCanvas.height;
+    if (!vw || !vh) return { offsetX: 0, offsetY: 0, drawW: cw, drawH: ch };
+    const scale = Math.max(cw / vw, ch / vh);
+    const drawW = vw * scale, drawH = vh * scale;
+    return { offsetX: (cw - drawW) / 2, offsetY: (ch - drawH) / 2, drawW, drawH };
+}
+
+function drawFilteredSkeleton(lm, exerciseType) {
+    const t = getCoverTransform();
+    const toPt = (name) => {
+        const idx = LM_INDEX[name];
+        const p = lm[idx];
+        if (!p || (p.visibility != null && p.visibility < 0.5)) return null;
+        return [t.offsetX + p.x * t.drawW, t.offsetY + p.y * t.drawH];
+    };
+
+    const conns = getActiveConnections(exerciseType);
+    const activePoints = new Set();
+    conns.forEach(([a, b]) => { activePoints.add(a); activePoints.add(b); });
+
+    // Lines first (so dots sit on top), same style as before
+    overlayCtx.strokeStyle = '#91e494';
+    overlayCtx.lineWidth = 3;
+    conns.forEach(([a, b]) => {
+        const pa = toPt(a), pb = toPt(b);
+        if (pa && pb) {
+            overlayCtx.beginPath();
+            overlayCtx.moveTo(pa[0], pa[1]);
+            overlayCtx.lineTo(pb[0], pb[1]);
+            overlayCtx.stroke();
+        }
+    });
+
+    overlayCtx.fillStyle = '#4CAF50';
+    activePoints.forEach((name) => {
+        const p = toPt(name);
+        if (p) {
+            overlayCtx.beginPath();
+            overlayCtx.arc(p[0], p[1], 4, 0, Math.PI * 2);
+            overlayCtx.fill();
+        }
+    });
+}
+
+(async function init() {
+    if (!ROOM_ID || !TOKEN) return showError('Invalid Link', 'This session link is missing required info.');
+
+    try {
+        const res = await fetch(`/api/telehealth/room/${ROOM_ID}?token=${encodeURIComponent(TOKEN)}`);
+        if (res.status === 410) return showError('Session Ended', 'This session link is no longer active.');
+        if (!res.ok)            return showError('Invalid Link', "We couldn't verify this session link.");
+
+        const room = await res.json();
+        if (room.exercise_type) currentExerciseType = room.exercise_type;
+        document.getElementById('prejoinIcon').className = 'fas fa-video big-icon';
+        document.getElementById('prejoinTitle').textContent = `Hi ${room.patient_name || 'there'}!`;
+        document.getElementById('prejoinSub').textContent =
+            `Your doctor${room.doctor_name ? ' ' + room.doctor_name : ''} is ready to start` +
+            (room.exercise_type ? ` your ${room.exercise_type} session.` : ' your session.');
+        document.getElementById('joinBtn').style.display = 'inline-flex';
+        setConn(false, 'Ready to join');
+    } catch (e) {
+        console.error(e);
+        showError('Connection Error', 'Could not reach the server. Check your internet and reload.');
+    }
+})();
+
+function showError(title, sub) {
+    document.getElementById('prejoinIcon').className = 'fas fa-exclamation-circle big-icon error-screen';
+    document.getElementById('prejoinTitle').textContent = title;
+    document.getElementById('prejoinSub').textContent = sub;
+    document.getElementById('joinBtn').style.display = 'none';
+    setConn(false, 'Disconnected');
+}
+
+function setConn(live, text) {
+    document.getElementById('connDot').classList.toggle('live', live);
+    document.getElementById('connText').textContent = text;
+}
+
+window.joinSession = async function joinSession() {
+    const btn = document.getElementById('joinBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting camera...';
+
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
+            audio: { echoCancellation: true, noiseSuppression: true },
+        });
+    } catch (e) {
+        console.error(e);
+        showError('Camera/Mic Blocked', 'Please allow camera and microphone access, then reload the page.');
+        return;
+    }
+
+    localVideo.srcObject = localStream;
+    document.getElementById('prejoinScreen').style.display = 'none';
+    document.getElementById('callView').classList.add('active');
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Start the render loop right away instead of waiting for the video's
+    // 'loadeddata' event. That event fires almost instantly (camera is
+    // already a live stream), often BEFORE initPoseLandmarker() finishes
+    // downloading the WASM runtime + model over the network — so the
+    // listener below was registered too late and the event was missed,
+    // meaning poseLoop() never ran and the skeleton never appeared.
+    // poseLoop() itself already guards on `!poseLandmarker || readyState<2`
+    // and just re-queues via requestAnimationFrame until both are ready,
+    // so calling it immediately here is race-free.
+    poseLoop();
+
+    await Promise.all([initPoseLandmarker(), initPeerConnection()]);
+    connectSignaling();
+};
+
+function resizeCanvas() {
+    overlayCanvas.width  = overlayCanvas.clientWidth;
+    overlayCanvas.height = overlayCanvas.clientHeight;
+    updateDetectCanvasSize();
+}
+
+async function initPoseLandmarker() {
+    const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    );
+    const modelPath =
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+
+    try {
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: modelPath, delegate: "GPU" },
+            runningMode: "VIDEO",
+            numPoses: 1,
+        });
+    } catch (e) {
+        // Some mobile/browser combos don't support the WebGL GPU delegate —
+        // fall back to CPU instead of failing silently (pose never detects).
+        console.warn('PoseLandmarker: GPU delegate failed, falling back to CPU:', e);
+        try {
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: modelPath, delegate: "CPU" },
+                runningMode: "VIDEO",
+                numPoses: 1,
+            });
+        } catch (e2) {
+            console.error('PoseLandmarker: CPU fallback also failed:', e2);
+            document.getElementById('noPoseChip').classList.add('show');
+            document.getElementById('noPoseChip').querySelector('span')?.remove();
+            document.getElementById('noPoseChip').innerHTML =
+                '<i class="fas fa-exclamation-triangle"></i> Pose model failed to load — check connection';
+        }
+    }
+}
+
+function poseLoop() {
+    if (!poseLandmarker || localVideo.readyState < 2) {
+        rafId = requestAnimationFrame(poseLoop);
+        return;
+    }
+
+    if (!detectCanvasReady) updateDetectCanvasSize();
+    if (!detectCanvasReady) {
+        // Video dimensions not available yet this tick — skip detection,
+        // try again next frame instead of running on a wrongly-sized canvas.
+        rafId = requestAnimationFrame(poseLoop);
+        return;
+    }
+    detectCtx.drawImage(localVideo, 0, 0, detectCanvas.width, detectCanvas.height);
+
+    const result = poseLandmarker.detectForVideo(detectCanvas, performance.now());
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    if (result.landmarks && result.landmarks.length > 0) {
+        document.getElementById('noPoseChip').classList.remove('show');
+        const lm = result.landmarks[0];
+        lastLandmarks = lm;
+
+        // Only draw the joints/lines relevant to the doctor-selected
+        // exercise (matches the in-clinic session page), with coordinates
+        // corrected for the video's `object-fit: cover` crop.
+        drawFilteredSkeleton(lm, currentExerciseType);
+    } else {
+        document.getElementById('noPoseChip').classList.add('show');
+        lastLandmarks = null;
+    }
+
+    rafId = requestAnimationFrame(poseLoop);
+}
+
+function angleBetween(a, b, c) {
+    const v1 = { x: a.x - b.x, y: a.y - b.y, z: (a.z||0) - (b.z||0) };
+    const v2 = { x: c.x - b.x, y: c.y - b.y, z: (c.z||0) - (b.z||0) };
+    const dot = v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
+    const n1 = Math.hypot(v1.x, v1.y, v1.z), n2 = Math.hypot(v2.x, v2.y, v2.z);
+    if (!n1 || !n2) return 0;
+    const cos = Math.min(1, Math.max(-1, dot / (n1*n2)));
+    return +(Math.acos(cos) * 180 / Math.PI).toFixed(1);
+}
+
+function computeAngles(lm) {
+    const angles = {};
+    for (const [name, [i1, i2, i3]] of Object.entries(JOINT_TRIPLETS)) {
+        if (lm[i1] && lm[i2] && lm[i3]) angles[name] = angleBetween(lm[i1], lm[i2], lm[i3]);
+    }
+    return angles;
+}
+
+function startMetricsBroadcast() {
+    // Matches the in-clinic session page's /api/pose_data poll cadence
+    // (300ms) — was 500ms here, which made the remote session's live
+    // analytics (badges, reps, stability/smoothness/balance) visibly
+    // update slower than an in-clinic session for the exact same movement.
+    metricsIntervalId = setInterval(() => {
+        if (!signalWs || signalWs.readyState !== WebSocket.OPEN) return;
+
+        if (!lastLandmarks) {
+            signalWs.send(JSON.stringify({ type: 'pose_metrics', detected: false, angles: {}, points: {}, ts: Date.now() }));
+            return;
+        }
+
+        const angles = computeAngles(lastLandmarks);
+        const primaryAngle = computePrimaryAngle(angles, currentExerciseType);
+
+        const reps       = updateRepCount(primaryAngle, currentTargetRom);
+        const stability  = updateStability(lastLandmarks);
+        const smoothness = updateSmoothness(primaryAngle);
+        const balance    = updateBalance(lastLandmarks);
+
+        if (reps > lastFatigueRepCount) {
+            recordRepQuality(primaryAngle, currentTargetRom);
+            lastFatigueRepCount = reps;
+        }
+
+        // Send raw normalized (0..1) landmark coords for the joints that are
+        // actually being drawn for this exercise, so the DOCTOR's screen can
+        // render the same connected-dots skeleton on top of the live WebRTC
+        // video — same joints, same filter logic as _get_active_connections
+        // in app.py / getActiveConnections() below. Only the active-joint
+        // subset is sent (not all 33 points) to keep the WS payload small at
+        // a 300ms cadence.
+        const activeConns = getActiveConnections(currentExerciseType);
+        const activeJointNames = new Set();
+        activeConns.forEach(([a, b]) => { activeJointNames.add(a); activeJointNames.add(b); });
+        const points = {};
+        activeJointNames.forEach((name) => {
+            const idx = LM_INDEX[name];
+            const p = lastLandmarks[idx];
+            if (p && (p.visibility == null || p.visibility >= 0.5)) {
+                points[name] = [+p.x.toFixed(4), +p.y.toFixed(4)];
+            }
+        });
+
+        signalWs.send(JSON.stringify({
+            type: 'pose_metrics',
+            detected: true,
+            angles,
+            points,
+            exercise_type: currentExerciseType,
+            primary_angle: primaryAngle,
+            reps, stability, smoothness, balance,
+            fatigue: fatigueScore,
+            ts: Date.now(),
+        }));
+    }, 300);
+}
+
+async function initPeerConnection() {
+    let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    try {
+        const res = await fetch('/api/telehealth/turn-credentials');
+        if (res.ok) iceServers = (await res.json()).iceServers;
+    } catch (e) { console.warn('TURN fetch failed, using STUN only:', e); }
+
+    peerConn = new RTCPeerConnection({ iceServers });
+    localStream.getTracks().forEach(track => peerConn.addTrack(track, localStream));
+
+    peerConn.ontrack = (event) => {
+        const pip = document.getElementById('doctorPip');
+        pip.classList.remove('waiting');
+        pip.innerHTML = `<video autoplay playsinline></video><span class="pip-label">Doctor</span>`;
+        pip.querySelector('video').srcObject = event.streams[0];
+    };
+
+    peerConn.onicecandidate = (event) => {
+        if (event.candidate) sendSignal({ type: 'ice_candidate', candidate: event.candidate });
+    };
+
+    peerConn.onconnectionstatechange = () => {
+        if (peerConn.connectionState === 'connected') setConn(true, 'Live');
+        if (['disconnected','failed'].includes(peerConn.connectionState)) setConn(false, 'Reconnecting...');
+    };
+
+    // Fallback for browsers with weak/missing `connectionState` support
+    // (notably older iOS Safari) — `iceConnectionState` is far more
+    // consistently implemented, so use it too to make sure the "Live"
+    // dot actually lights up on patient mobile devices.
+    peerConn.oniceconnectionstatechange = () => {
+        if (['connected', 'completed'].includes(peerConn.iceConnectionState)) setConn(true, 'Live');
+        if (['disconnected', 'failed'].includes(peerConn.iceConnectionState)) setConn(false, 'Reconnecting...');
+    };
+}
+
+async function createAndSendOffer() {
+    const offer = await peerConn.createOffer();
+    await peerConn.setLocalDescription(offer);
+    sendSignal({ type: 'offer', sdp: offer });
+}
+
+function connectSignaling() {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    signalWs = new WebSocket(`${proto}://${window.location.host}/ws/signal/${ROOM_ID}?role=patient&token=${encodeURIComponent(TOKEN)}`);
+
+    signalWs.onopen = () => { setConn(false, 'Connected — waiting for doctor'); startMetricsBroadcast(); };
+
+    signalWs.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+            case 'peer_already_present':
+            case 'peer_joined':
+                if (msg.role === 'doctor' && !doctorAlreadyPresent) {
+                    doctorAlreadyPresent = true;
+                    await createAndSendOffer();
+                }
+                break;
+            case 'answer':
+                await peerConn.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                break;
+            case 'ice_candidate':
+                try { await peerConn.addIceCandidate(msg.candidate); } catch (e) { console.warn(e); }
+                break;
+            case 'peer_left':
+                if (msg.role === 'doctor') {
+                    doctorAlreadyPresent = false;
+                    const pip = document.getElementById('doctorPip');
+                    pip.classList.add('waiting');
+                    pip.innerHTML = '<span>Waiting for<br>doctor to join...</span>';
+                    setConn(false, 'Doctor disconnected');
+                }
+                break;
+            case 'session_closed':
+                endSession('Session Ended', 'Your doctor has ended this session. Thank you!');
+                break;
+            case 'session_config':
+                // Doctor picked/changed an exercise — use it for our own
+                // rep-counting thresholds, and start a fresh rep count.
+                currentExerciseType = msg.exercise_type || currentExerciseType;
+                currentTargetRom    = msg.target_rom    || currentTargetRom;
+                resetExerciseMetrics();
+                break;
+        }
+    };
+
+    signalWs.onclose = () => setConn(false, 'Disconnected');
+}
+
+function sendSignal(data) {
+    if (signalWs && signalWs.readyState === WebSocket.OPEN) signalWs.send(JSON.stringify(data));
+}
+
+window.toggleMic = function () {
+    micOn = !micOn;
+    localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+    const btn = document.getElementById('micBtn');
+    btn.classList.toggle('off', !micOn);
+    btn.innerHTML = `<i class="fas fa-microphone${micOn ? '' : '-slash'}"></i>`;
+};
+
+window.toggleCam = function () {
+    camOn = !camOn;
+    localStream.getVideoTracks().forEach(t => t.enabled = camOn);
+    const btn = document.getElementById('camBtn');
+    btn.classList.toggle('off', !camOn);
+    btn.innerHTML = `<i class="fas fa-video${camOn ? '' : '-slash'}"></i>`;
+};
+
+window.leaveCall = function () {
+    if (confirm('Leave this session?')) endSession('You Left the Session', 'You can rejoin using the same link if your doctor is still online.');
+};
+
+function endSession(title, sub) {
+    document.getElementById('endedTitle').textContent = title;
+    document.getElementById('endedSub').textContent = sub;
+    document.getElementById('endedOverlay').classList.add('active');
+
+    if (rafId) cancelAnimationFrame(rafId);
+    if (metricsIntervalId) clearInterval(metricsIntervalId);
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (peerConn) peerConn.close();
+    if (signalWs) signalWs.close();
+}
+
+window.addEventListener('beforeunload', () => {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (peerConn) peerConn.close();
+});
+</script>
+</body>
+</html>

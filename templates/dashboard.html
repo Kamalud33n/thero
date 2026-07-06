@@ -9,13 +9,93 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ── Layout rhythm ───────────────────────────── */
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .stats-grid,
+        .charts-row,
+        .progress-summary {
+            margin-bottom: 0; /* spacing now handled by .content-area gap */
+            margin-top: 0;
+        }
+
+        /* ── Stat cards: more breathing room ────────── */
+        .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        .stat-card {
+            padding: 22px;
+            gap: 18px;
+            align-items: flex-start;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 13px;
+            font-size: 19px;
+            margin-top: 2px;
+        }
+
+        .stat-content {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .stat-label {
+            line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .stat-trend {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            padding: 3px 9px;
+            font-size: 11px;
+        }
+
+        @media (max-width: 1200px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+
         /* ── Chart fix ───────────────────────────────── */
         .chart-container {
-            padding: 24px;
+            padding: 26px;
             border-radius: var(--card-radius);
             display: flex;
             flex-direction: column;
+            gap: 4px;
+            border: 1px solid rgba(0, 0, 0, 0.04);
             /* NO min-height / max-height here – wrapper controls canvas */
+        }
+
+        .chart-header {
+            margin-bottom: 20px;
+        }
+
+        .chart-header h3 {
+            letter-spacing: 0.2px;
         }
 
         .canvas-wrapper {
@@ -57,9 +137,13 @@
 
         /* ── Progress timeline ───────────────────────── */
         .progress-summary {
-            padding: 24px;
+            padding: 26px;
             border-radius: var(--card-radius);
-            margin-top: 24px;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .section-header {
+            margin-bottom: 20px;
         }
 
         .progress-filters {
@@ -92,21 +176,28 @@
 
         .progress-timeline {
             display: grid;
-            gap: 10px;
-            margin-top: 16px;
+            gap: 12px;
+            margin-top: 4px;
             max-height: 340px;
             overflow-y: auto;
-            padding-right: 4px;
+            padding-right: 6px;
         }
 
         .timeline-item {
             display: flex;
             align-items: center;
-            gap: 16px;
-            padding: 10px 16px;
-            border-radius: 10px;
-            background: rgba(255,255,255,0.35);
+            gap: 20px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.45);
+            border: 1px solid rgba(0,0,0,0.03);
             flex-wrap: wrap;
+            transition: var(--transition-smooth);
+        }
+
+        .timeline-item:hover {
+            background: rgba(255,255,255,0.7);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
         }
 
         .timeline-date {
@@ -114,27 +205,28 @@
             color: var(--text-light);
             min-width: 72px;
             flex-shrink: 0;
+            font-weight: 500;
         }
 
         .timeline-exercise {
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--text-primary);
             flex: 1;
-            min-width: 100px;
+            min-width: 140px;
         }
 
         .timeline-metrics {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             flex-wrap: wrap;
         }
 
         .metric-badge {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            padding: 3px 10px;
+            gap: 5px;
+            padding: 4px 12px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
@@ -192,11 +284,6 @@
                     </div>
                 </div>
                 <div class="top-bar-right">
-                    <div class="patient-selector">
-                        <select id="patientSelect" class="glass-select">
-                            <option value="">Select Patient</option>
-                        </select>
-                    </div>
                     <div class="status-badge">
                         <span class="badge-dot" id="aiBadgeDot"></span>
                         <span id="aiStatusText">Checking...</span>
@@ -229,7 +316,7 @@
                                 <button class="chart-btn"        data-chart="accuracy" data-period="month">Month</button>
                             </div>
                         </div>
-                        <!-- ✅ canvas-wrapper fixes the grow issue -->
+                        <!-- canvas-wrapper fixes the grow issue -->
                         <div class="canvas-wrapper">
                             <canvas id="accuracyChart"></canvas>
                         </div>
@@ -288,22 +375,22 @@
 
     <script src="/static/app.js"></script>
     <script>
-    // ─── State ────────────────────────────────────────────────────────────────
+    // State 
     let _dashData     = null;
     let _charts       = {};
     let _allRows      = [];
 
-    // ─── Boot ─────────────────────────────────────────────────────────────────
+    // Boot 
     document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('menuToggle')?.addEventListener('click', () =>
             document.querySelector('.sidebar').classList.toggle('active'));
 
-        await Promise.all([checkHealth(), loadPatients(), loadDashboard()]);
+        await Promise.all([checkHealth(), loadDashboard()]);
         bindFilterButtons();
         bindChartPeriodButtons();
     });
 
-    // ─── Health check ─────────────────────────────────────────────────────────
+    // Health check 
     async function checkHealth() {
         try {
             const d = await (await fetch('/api/health')).json();
@@ -322,21 +409,7 @@
         }
     }
 
-    // ─── Load patients ────────────────────────────────────────────────────────
-    async function loadPatients() {
-        try {
-            const patients = await (await fetch('/api/patients')).json();
-            const sel = document.getElementById('patientSelect');
-            patients.forEach(p => {
-                const o = document.createElement('option');
-                o.value = p.id;
-                o.textContent = p.name;
-                sel.appendChild(o);
-            });
-        } catch(e) { console.error('loadPatients:', e); }
-    }
-
-    // ─── Main dashboard load ──────────────────────────────────────────────────
+    // Main dashboard load 
     async function loadDashboard() {
         try {
             _dashData = await (await fetch('/api/dashboard')).json();
@@ -350,7 +423,7 @@
         }
     }
 
-    // ─── Stats grid ───────────────────────────────────────────────────────────
+    // Stats grid 
     function renderStats(s) {
         const weekAcc  = _dashData.weekly?.accuracy  ?? 0;
         const monthAcc = _dashData.monthly?.accuracy ?? 0;
@@ -387,7 +460,7 @@
         `).join('');
     }
 
-    // ─── Progress timeline ────────────────────────────────────────────────────
+    // Progress timeline 
     function renderTimeline(rows, filter = 'all') {
         _allRows = rows || [];
         const container = document.getElementById('progressTimeline');
@@ -426,7 +499,7 @@
         }).join('');
     }
 
-    // ─── Filter buttons ───────────────────────────────────────────────────────
+    // Filter buttons 
     function bindFilterButtons() {
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -437,7 +510,7 @@
         });
     }
 
-    // ─── Charts init ──────────────────────────────────────────────────────────
+    // Charts init 
     function initCharts(data) {
         const progress = data.progress || [];
         const sorted   = [...progress].sort((a,b) => new Date(a.date) - new Date(b.date));
@@ -465,7 +538,7 @@
         _charts.recovery = buildLineChart('recoveryChart', recLabels, recData, 'Recovery %', '#9C27B0', v => v.toFixed(1)+'%', 100);
     }
 
-    // ─── Chart period toggle ──────────────────────────────────────────────────
+    // Chart period toggle 
     function bindChartPeriodButtons() {
         document.querySelectorAll('.chart-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -495,7 +568,7 @@
         chart.update();
     }
 
-    // ─── Chart builders ───────────────────────────────────────────────────────
+    // Chart builders
     function buildLineChart(id, labels, data, label, color, tickCb, maxY) {
         const ctx = document.getElementById(id)?.getContext('2d');
         if (!ctx) return null;
@@ -558,7 +631,7 @@
     function chartOptions(tickCb, maxY) {
         return {
             responsive: true,
-            maintainAspectRatio: false,   /* canvas-wrapper height-ஐ follow பண்ணும் */
+            maintainAspectRatio: false,   /* canvas-wrapper height */
             plugins: { legend:{ display:false }, tooltip: tooltipStyle() },
             scales: {
                 y: {

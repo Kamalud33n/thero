@@ -256,6 +256,110 @@
             flex-wrap: wrap;
         }
 
+        /* ── Remote (telehealth) session modal ── */
+        .remote-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(6px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .remote-modal.active { display: flex; }
+        .remote-card {
+            background: rgba(255,255,255,0.97);
+            border-radius: 24px;
+            padding: 28px;
+            max-width: 720px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        .remote-card h2 { font-size: 19px; font-weight: 700; color: var(--text-primary); margin: 0 0 4px; display:flex; align-items:center; gap:8px; }
+        .remote-card h2 i { color: var(--medical-green); }
+        .remote-card .sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; }
+        .remote-close {
+            position: absolute; top: 18px; right: 18px;
+            background: none; border: none; font-size: 18px;
+            color: var(--text-secondary); cursor: pointer;
+        }
+        .remote-card { position: relative; }
+
+        .remote-link-row {
+            display: flex; gap: 8px; margin: 14px 0;
+        }
+        .remote-link-row input {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(0,0,0,0.1);
+            background: var(--light-gray);
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+        .remote-status-line {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 13px; color: var(--text-secondary);
+            margin-top: 10px;
+        }
+        .remote-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #f44336; }
+        .remote-status-dot.live { background: #4CAF50; animation: remotePulse 1.4s infinite; }
+        @keyframes remotePulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+        /* Live call layout */
+        .remote-call-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            margin-top: 6px;
+        }
+        .remote-video-wrap {
+            position: relative;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #0d1117;
+            aspect-ratio: 4/3;
+        }
+        .remote-video-wrap video { width: 100%; height: 100%; object-fit: cover; }
+        .remote-video-wrap .no-patient,
+        .camera-container .no-patient {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: rgba(255,255,255,0.55); font-size: 13px; gap: 8px; text-align:center; padding: 16px;
+            z-index: 5;
+        }
+        .remote-doctor-pip {
+            position: absolute; bottom: 10px; right: 10px;
+            width: 76px; height: 100px;
+            border-radius: 10px; overflow: hidden;
+            border: 2px solid rgba(255,255,255,0.3);
+            background: #1a1a1a;
+            z-index: 12;
+        }
+        .remote-doctor-pip video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+        .remote-angle-panel { display: flex; flex-direction: column; gap: 8px; }
+        .remote-angle-chip {
+            background: var(--light-gray);
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .remote-angle-chip .lbl { font-size: 12px; color: var(--text-secondary); }
+        .remote-angle-chip .val { font-size: 16px; font-weight: 800; color: var(--text-primary); }
+
+        .remote-controls-row {
+            display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap;
+        }
+
+        @media (max-width: 600px) {
+            .remote-call-grid { grid-template-columns: 1fr; }
+        }
+
         @media (max-width: 600px) {
             .result-stats { grid-template-columns: repeat(2,1fr); }
         }
@@ -339,11 +443,14 @@
                             <button class="btn-secondary" onclick="toggleCamera()">
                                 <i class="fas fa-camera"></i> Camera
                             </button>
+                            <button class="btn-secondary" onclick="openRemoteModal()">
+                                <i class="fas fa-wifi"></i> Remote Session
+                            </button>
                         </div>
                     </div>
 
                     <div class="camera-container">
-                        <!-- ✅ MJPEG stream — browser decodes natively, no canvas/JS drawing needed -->
+                        <!--  MJPEG stream — browser decodes natively, no canvas/JS drawing needed -->
                         <img id="poseStream" alt="Live pose stream" style="display:none">
 
                         <!-- Pose badges -->
@@ -354,6 +461,16 @@
                             <div class="pose-badge purple" id="badge_r_elbow"    data-joint="elbow">   <i class="fas fa-circle" style="font-size:7px"></i> R.Elbow: --°</div>
                             <div class="pose-badge green"  id="badge_l_knee"     data-joint="knee">    <i class="fas fa-circle" style="font-size:7px"></i> L.Knee: --°</div>
                             <div class="pose-badge blue"   id="badge_r_knee"     data-joint="knee">    <i class="fas fa-circle" style="font-size:7px"></i> R.Knee: --°</div>
+                        </div>
+
+                        <!--  Remote (telehealth) patient video — shares this same screen -->
+                        <video id="remotePatientVideo" autoplay playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;"></video>
+                        <div class="remote-doctor-pip" id="remoteDoctorPip" style="display:none">
+                            <video id="remoteDoctorVideo" autoplay playsinline muted></video>
+                        </div>
+                        <div class="no-patient" id="remoteNoPatient" style="display:none">
+                            <i class="fas fa-user fa-2x"></i>
+                            <span>Waiting for patient's video...</span>
                         </div>
 
                         <!-- Countdown ring -->
@@ -427,7 +544,7 @@
                             </select>
                         </div>
 
-                        <!-- ✅ Duration selector -->
+                        <!-- Duration selector -->
                         <div class="form-group">
                             <label>Session Duration</label>
                             <div class="duration-selector">
@@ -504,7 +621,53 @@
     </main>
 </div>
 
-<!-- ✅ Session Result Modal -->
+<!-- Remote (telehealth) Session Modal -->
+<div class="remote-modal" id="remoteModal">
+    <div class="remote-card">
+        <button class="remote-close" onclick="closeRemoteModal()"><i class="fas fa-times"></i></button>
+
+        <!-- Step 1: setup -->
+        <div id="remoteSetupView">
+            <h2><i class="fas fa-wifi"></i> Start Remote Session</h2>
+            <p class="sub">Generate a link and share it with the patient — they'll join from their own phone/laptop.</p>
+
+            <div class="form-group">
+                <label>Patient</label>
+                <select id="remotePatientSelect" class="form-input"></select>
+            </div>
+
+            <button class="btn-primary" id="remoteGenerateBtn" onclick="generateRemoteLink()" style="width:100%;margin-top:8px">
+                <i class="fas fa-link"></i> Generate Link
+            </button>
+
+            <div id="remoteLinkBox" style="display:none">
+                <div class="remote-link-row">
+                    <input type="text" id="remoteLinkInput" readonly>
+                    <button class="btn-secondary" onclick="copyRemoteLink()"><i class="fas fa-copy"></i></button>
+                </div>
+                <div class="remote-status-line">
+                    <span class="remote-status-dot" id="remoteStatusDot"></span>
+                    <span id="remoteStatusText">Waiting for patient to join...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: live call — video + joint angles now show in the main
+             camera screen above (same box used for local sessions); this
+             panel just holds status + call controls -->
+        <div id="remoteLiveView" style="display:none">
+            <h2><i class="fas fa-video"></i> Live Remote Session</h2>
+            <p class="sub" id="remoteLiveSub">Connected — video &amp; analytics are on the main screen above</p>
+
+            <div class="remote-controls-row">
+                <button class="btn-secondary" id="remoteMicBtn" onclick="toggleRemoteMic()"><i class="fas fa-microphone"></i> Mute</button>
+                <button class="btn-secondary" id="remoteCamBtn" onclick="toggleRemoteCam()"><i class="fas fa-video"></i> Camera</button>
+                <button class="btn-danger" onclick="endRemoteSession()"><i class="fas fa-phone-slash"></i> End Session</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Session Result Modal -->
 <div class="result-modal" id="resultModal">
     <div class="result-card">
         <div class="result-header">
@@ -556,6 +719,7 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 let sessionActive    = false;
 let cameraActive     = false;
+let isRemoteMode     = false;   // true once a remote patient's video is driving the shared camera screen
 let sessionStartTime = null;
 let countdownTotal   = 60;       // seconds
 let countdownLeft    = 60;
@@ -566,27 +730,27 @@ let elapsedSec       = 0;
 let currentAccuracy   = 0;
 let currentRom        = 0;
 let currentStability  = 0;
-let currentSmoothness = 100;   // ✅ real — from backend frame-jerk variance
-let currentBalance    = 100;   // ✅ real — from backend shoulder-sway variance
-let currentFatigue    = 0;     // ✅ real — from backend rep-quality decline trend
+let currentSmoothness = 100;   //  real — from backend frame-jerk variance
+let currentBalance    = 100;   //  real — from backend shoulder-sway variance
+let currentFatigue    = 0;     //  real — from backend rep-quality decline trend
 let repCount         = 0;
 
 let poseDetected     = false;
 
-// ✅ MJPEG + polling state (replaces WebSocket)
+// MJPEG + polling state (replaces WebSocket)
 let poseInterval     = null;   // setInterval handle for /api/pose_data polling
 let pollFailCount    = 0;
 let lastPollOkTime   = 0;
 let fpsCounter       = 0;
 let fpsWindowStart   = Date.now();
 
-// ✅ Time-series data for result chart
+// Time-series data for result chart
 let _timeline = [];   // [{t, acc, rom, stab}]
 let _timelineTimer = null;
 
 let resultChartInst  = null;
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
+// Boot 
 document.addEventListener('DOMContentLoaded', () => {
     loadPatients();
     retryPendingSessions();
@@ -594,7 +758,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelector('.sidebar').classList.toggle('active'));
 });
 
-// ─── Patients ─────────────────────────────────────────────────────────────────
+// Patients
 async function loadPatients() {
     try {
         const pts = await (await fetch('/api/patients')).json();
@@ -607,7 +771,7 @@ async function loadPatients() {
     } catch(e) { console.error(e); }
 }
 
-// ─── Duration selector ────────────────────────────────────────────────────────
+// Duration selector
 function selectDuration(btn, sec) {
     document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
@@ -627,8 +791,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// ─── ✅ Camera (MJPEG <img> stream, no WebSocket / no canvas) ─────────────────
+// Camera (MJPEG <img> stream, no WebSocket / no canvas)
 function toggleCamera() {
+    if (isRemoteMode) {
+        showToast('Remote session is using this screen — end it first to use the local camera', 'error');
+        return;
+    }
     cameraActive ? stopCamera() : startCamera();
 }
 
@@ -656,14 +824,14 @@ function startCamera() {
     fpsCounter     = 0;
     fpsWindowStart = Date.now();
 
-    // ✅ Tell backend which exercise is active so it draws only relevant joints
+    // Tell backend which exercise is active so it draws only relevant joints
     syncExerciseType();
 
     // Poll joint-angle/detection data independently of the video stream
     poseInterval = setInterval(pollPoseData, 300);
 }
 
-// ✅ Push current exercise selection + target ROM to backend (drives joint
+// Push current exercise selection + target ROM to backend (drives joint
 // filtering AND server-side rep counting / threshold logic)
 async function syncExerciseType() {
     applyActiveJointUI();
@@ -679,7 +847,7 @@ async function syncExerciseType() {
     } catch(e) { console.error('syncExerciseType:', e); }
 }
 
-// ─── Which joint group is relevant for the selected exercise ───────────────
+// Which joint group is relevant for the selected exercise 
 // Mirrors the backend's _compute_primary_angle / _get_active_connections
 // mapping so the UI only lights up the joint(s) actually being tracked.
 function getActiveJointGroup() {
@@ -713,9 +881,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exerciseType')?.addEventListener('change', () => {
         applyActiveJointUI();
         if (cameraActive) syncExerciseType();
+        if (isRemoteMode && remotePatientConnected) syncRemoteExerciseConfig();
     });
     document.getElementById('targetRom')?.addEventListener('change', () => {
         if (cameraActive) syncExerciseType();
+        if (isRemoteMode && remotePatientConnected) syncRemoteExerciseConfig();
     });
 });
 
@@ -746,7 +916,7 @@ async function stopCamera() {
     }
 }
 
-// ─── ✅ Poll latest pose data (replaces ws.onmessage) ──────────────────────────
+// Poll latest pose data (replaces ws.onmessage)
 async function pollPoseData() {
     try {
         const res = await fetch('/api/pose_data');
@@ -775,7 +945,7 @@ async function pollPoseData() {
     }
 }
 
-// ─── Pose data handler ────────────────────────────────────────────────────────
+// Pose data handler 
 function handlePoseData(data) {
     poseDetected = !!data.detected;
 
@@ -808,16 +978,23 @@ function handlePoseData(data) {
         updateBadge('badge_r_knee',    'R.Knee',    ang.r_knee,  targetRom);
     }
 
-    // ✅ Reps, stability, smoothness, balance, fatigue now ALL come straight
+    // Reps, stability, smoothness, balance, fatigue now ALL come straight
     // from the backend (real MediaPipe computation — no Math.random, no
     // metric copied from another metric)
     if (sessionActive) {
-        repCount = data.reps != null ? data.reps : repCount;
-        if (data.stability  != null) currentStability  = data.stability;
-        if (data.smoothness != null) currentSmoothness = data.smoothness;
-        if (data.balance    != null) currentBalance    = data.balance;
-        if (data.fatigue    != null) currentFatigue    = data.fatigue;
-        updateAnalytics(data.primary_angle, targetRom);
+        try {
+            repCount = data.reps != null ? data.reps : repCount;
+            if (data.stability  != null) currentStability  = data.stability;
+            if (data.smoothness != null) currentSmoothness = data.smoothness;
+            if (data.balance    != null) currentBalance    = data.balance;
+            if (data.fatigue    != null) currentFatigue    = data.fatigue;
+            updateAnalytics(data.primary_angle, targetRom);
+        } catch (err) {
+            // Was failing silently before — this makes the real cause
+            // visible in DevTools console instead of Live Analytics just
+            // staying frozen at 0 with no explanation.
+            console.error('Live Analytics update failed:', err, { data, targetRom, sessionActive });
+        }
     }
 }
 
@@ -831,13 +1008,16 @@ function updateBadge(id, label, angle, targetRom) {
     el.className = 'pose-badge ' + (pct >= 0.85 ? 'green' : pct >= 0.6 ? 'orange' : 'red');
 }
 
-// ─── Session start / stop ─────────────────────────────────────────────────────
+// Session start / stop 
 function startSession() {
     if (!document.getElementById('sessionPatientSelect').value) {
         showToast('Please select a patient', 'error'); return;
     }
-    if (!cameraActive) {
+    if (!isRemoteMode && !cameraActive) {
         showToast('Please start the camera first', 'error'); return;
+    }
+    if (isRemoteMode && !remotePatientConnected) {
+        showToast('Waiting for patient to join', 'error'); return;
     }
 
     // Read custom duration if selected
@@ -857,10 +1037,17 @@ function startSession() {
     currentFatigue    = 0;
     _timeline = [];
 
-    // ✅ Reset server-side rep counter + stability buffer for this new session,
-    // and make sure backend has the latest exercise/ROM target before we start
-    syncExerciseType();
-    fetch('/api/session/reset', { method: 'POST' }).catch(e => console.error('session reset failed:', e));
+    if (isRemoteMode) {
+        // Remote patient does its own rep-counting/stability/etc. on their
+        // device — just push the current exercise/ROM config to them so
+        // their thresholds match what the doctor selected.
+        syncRemoteExerciseConfig();
+    } else {
+        // Reset server-side rep counter + stability buffer for this new
+        // session, and make sure backend has the latest exercise/ROM target
+        syncExerciseType();
+        fetch('/api/session/reset', { method: 'POST' }).catch(e => console.error('session reset failed:', e));
+    }
 
     document.getElementById('startSessionBtn').style.display = 'none';
     document.getElementById('stopSessionBtn').style.display  = 'inline-block';
@@ -900,7 +1087,7 @@ function startSession() {
         }
     }, 1000);
 
-    // ✅ Record timeline every 5s
+    // Record timeline every 5s
     _timelineTimer = setInterval(() => {
         if (sessionActive) {
             _timeline.push({
@@ -928,14 +1115,23 @@ function stopSession() {
 
     document.getElementById('startSessionBtn').style.display = 'inline-block';
     document.getElementById('stopSessionBtn').style.display  = 'none';
-    document.getElementById('statusText').textContent        = cameraActive ? 'Connected' : 'Ready';
-    document.getElementById('statusDot').className           = cameraActive ? 'badge-dot online' : 'badge-dot offline';
+    const stillConnected = cameraActive || (isRemoteMode && remotePatientConnected);
+    document.getElementById('statusText').textContent        = stillConnected ? 'Connected' : 'Ready';
+    document.getElementById('statusDot').className           = stillConnected ? 'badge-dot online' : 'badge-dot offline';
     document.getElementById('recIndicator').classList.remove('active');
     document.getElementById('timerRing').classList.remove('active');
     document.getElementById('remainingTimer').textContent    = '--:--';
 
     saveSession();
     showResultModal();
+
+    // If this was a remote (telehealth) session, closing the exercise
+    // timer should also end the call + close the patient's link — the
+    // patient shouldn't stay connected indefinitely just because the
+    // doctor forgot to click "End Remote Session" manually.
+    if (isRemoteMode && remoteRoomId) {
+        endRemoteSession(true);
+    }
 }
 
 function updateTimerRing() {
@@ -948,7 +1144,7 @@ function updateTimerRing() {
     document.getElementById('timerText').textContent = `${m}:${s}`;
 }
 
-// ─── Analytics update (✅ fully derived from real backend data, no Math.random) ─
+// ─── Analytics update (fully derived from real backend data, no Math.random) ─
 function updateAnalytics(primaryAngle, targetRom) {
     if (primaryAngle != null && targetRom > 0) {
         currentRom      = Math.min(targetRom, Math.max(0, primaryAngle));
@@ -979,7 +1175,7 @@ function updateFeedback(acc, rom) {
         `<div class="feedback-message ${cls}"><i class="fas ${icon}"></i><span>${msg}</span></div>`;
 }
 
-// ─── ✅ Result modal ───────────────────────────────────────────────────────────
+// Result modal 
 function showResultModal() {
     const avgAcc  = _timeline.length ? (_timeline.reduce((s,r)=>s+r.acc, 0) / _timeline.length).toFixed(1) : currentAccuracy.toFixed(1);
     const avgRom  = _timeline.length ? (_timeline.reduce((s,r)=>s+r.rom, 0) / _timeline.length).toFixed(1) : currentRom.toFixed(1);
@@ -1060,7 +1256,7 @@ function closeResult() {
         '<div class="feedback-message"><i class="fas fa-info-circle"></i><span>Start session to receive feedback</span></div>';
 }
 
-// ─── Save session ─────────────────────────────────────────────────────────────
+// Save session
 async function saveSession() {
     const patientId    = document.getElementById('sessionPatientSelect').value;
     const exerciseType = document.getElementById('exerciseType').value;
@@ -1076,7 +1272,7 @@ async function saveSession() {
         });
     });
 
-    // ✅ All 6 metrics below are real independent averages pulled from the
+    // All 6 metrics below are real independent averages pulled from the
     // session timeline, which itself is fed live from backend MediaPipe
     // calculations (angles, rep-cycle counter, hip jitter, shoulder sway,
     // frame-jerk variance, rep-quality trend). Nothing here is copied from
@@ -1145,7 +1341,7 @@ async function saveSessionPayload(payload) {
     }
 }
 
-// ─── Local backup so a failed save isn't lost ──────────────────────────────────
+// Local backup so a failed save isn't lost
 const PENDING_SESSIONS_KEY = 'rehabai_pending_sessions';
 
 function stashFailedSession(payload) {
@@ -1177,7 +1373,7 @@ async function retryPendingSessions() {
     }
 }
 
-// ─── Misc ─────────────────────────────────────────────────────────────────────
+// Misc
 function handleLogout() {
     if (sessionActive && !confirm('Session in progress. Stop and logout?')) return;
     if (sessionActive) stopSession();
@@ -1195,7 +1391,7 @@ function showToast(message, type='success', duration=3500) {
     setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),300); },duration);
 }
 
-// ✅ Stop camera + release device on page unload (no WS to close anymore)
+// Stop camera + release device on page unload (no WS to close anymore)
 window.addEventListener('beforeunload', () => {
     if (cameraActive) {
         // best-effort: fire-and-forget, can't reliably await in beforeunload
@@ -1203,6 +1399,320 @@ window.addEventListener('beforeunload', () => {
             ? navigator.sendBeacon('/api/camera/stop')
             : fetch('/api/camera/stop', { method: 'POST', keepalive: true });
     }
+});
+</script>
+
+<script>
+// Remote (telehealth) Session — doctor side
+// Self-contained: separate state/functions (prefixed `remote`) so this never
+// touches the existing local/in-clinic camera + pose polling logic above.
+let remoteRoomId      = null;
+let remoteToken       = null;
+let remoteWs          = null;
+let remotePeerConn    = null;
+let remoteLocalStream = null;
+let remoteMicOn = true, remoteCamOn = true;
+let remotePatientConnected = false;
+
+// Switch the SAME camera-container screen between local webcam & remote
+// patient video, so badges / timer ring / joint-angles / analytics are
+// reused as-is for both modes 
+function enterRemoteVideoMode() {
+    if (cameraActive) stopCamera();   // release local webcam, screen is being reused
+
+    isRemoteMode = true;
+    document.getElementById('cameraPlaceholder').style.display   = 'none';
+    document.getElementById('poseStream').style.display           = 'none';
+    document.getElementById('remotePatientVideo').style.display   = 'block';
+    document.getElementById('remoteDoctorPip').style.display      = 'block';
+    document.getElementById('remoteNoPatient').style.display      = 'flex';
+    document.getElementById('poseBadges').style.display           = 'flex';
+    document.getElementById('cameraStatusText').textContent       = 'Remote';
+    document.getElementById('cameraStatus').classList.add('active');
+    applyActiveJointUI();
+}
+
+function exitRemoteVideoMode() {
+    isRemoteMode = false;
+    const video = document.getElementById('remotePatientVideo');
+    video.srcObject = null;
+    video.style.display = 'none';
+    document.getElementById('remoteDoctorPip').style.display   = 'none';
+    document.getElementById('remoteNoPatient').style.display   = 'none';
+    document.getElementById('poseBadges').style.display        = 'none';
+    document.getElementById('cameraPlaceholder').style.display = 'flex';
+    document.getElementById('cameraStatusText').textContent    = 'Disconnected';
+    document.getElementById('cameraStatus').classList.remove('active');
+    document.getElementById('statusText').textContent          = 'Ready';
+    document.getElementById('statusDot').className             = 'badge-dot offline';
+}
+
+//  Modal open/close
+async function openRemoteModal() {
+    document.getElementById('remoteModal').classList.add('active');
+    if (!remoteRoomId) {
+        // fresh open — populate patient dropdown
+        const sel = document.getElementById('remotePatientSelect');
+        sel.innerHTML = '<option value="">Select Patient</option>';
+        try {
+            const pts = await (await fetch('/api/patients')).json();
+            pts.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id; o.textContent = p.name;
+                sel.appendChild(o);
+            });
+            // default to whichever patient is already selected on the main page
+            const mainSelect = document.getElementById('sessionPatientSelect');
+            if (mainSelect?.value) sel.value = mainSelect.value;
+        } catch (e) { console.error('remote: loadPatients failed', e); }
+    }
+}
+
+function closeRemoteModal() {
+    document.getElementById('remoteModal').classList.remove('active');
+    // Note: closing the modal does NOT end the call — doctor can reopen it
+    // via the "Remote Session" button to get back to the live view.
+}
+
+// Step 1: generate the link 
+async function generateRemoteLink() {
+    const patientId = document.getElementById('remotePatientSelect').value;
+    if (!patientId) { showToast('Please select a patient', 'error'); return; }
+
+    const btn = document.getElementById('remoteGenerateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+    try {
+        const res = await fetch('/api/telehealth/create-room', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                patient_id:    patientId,
+                exercise_type: document.getElementById('exerciseType')?.value || null,
+                doctor_name:   null,
+            }),
+        });
+        if (!res.ok) throw new Error('create-room failed');
+        const data = await res.json();
+
+        remoteRoomId = data.room_id;
+        remoteToken  = data.token;
+
+        // Keep the main patient dropdown (used by startSession/saveSession)
+        // in sync with the patient this remote link was generated for.
+        const mainSelect = document.getElementById('sessionPatientSelect');
+        if (mainSelect) mainSelect.value = patientId;
+
+        const fullLink = `${window.location.origin}${data.join_url}`;
+        document.getElementById('remoteLinkInput').value = fullLink;
+        document.getElementById('remoteLinkBox').style.display = 'block';
+        btn.innerHTML = '<i class="fas fa-redo"></i> Regenerate Link';
+        btn.disabled = false;
+
+        // Same screen (camera-container) now shows the remote patient
+        // instead of the local webcam — releases the local camera if it
+        // was running.
+        enterRemoteVideoMode();
+
+        await connectDoctorSignaling();
+    } catch (e) {
+        console.error(e);
+        showToast('Could not generate link. Try again.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-link"></i> Generate Link';
+    }
+}
+
+function copyRemoteLink() {
+    const input = document.getElementById('remoteLinkInput');
+    input.select();
+    navigator.clipboard?.writeText(input.value)
+        .then(() => showToast('Link copied!', 'success'))
+        .catch(() => document.execCommand('copy'));
+}
+
+// Doctor's own camera/mic (for the two-way call) 
+async function getRemoteLocalMedia() {
+    if (remoteLocalStream) return remoteLocalStream;
+    try {
+        remoteLocalStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        document.getElementById('remoteDoctorVideo').srcObject = remoteLocalStream;
+    } catch (e) {
+        console.warn('remote: doctor camera/mic not available, joining as viewer-only:', e);
+        remoteLocalStream = null;
+    }
+    return remoteLocalStream;
+}
+
+// WebRTC (doctor is always the answerer — patient always offers) 
+async function connectDoctorSignaling() {
+    let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    try {
+        const res = await fetch('/api/telehealth/turn-credentials');
+        if (res.ok) iceServers = (await res.json()).iceServers;
+    } catch (e) { console.warn('TURN fetch failed, using STUN only:', e); }
+
+    remotePeerConn = new RTCPeerConnection({ iceServers });
+
+    const localStream = await getRemoteLocalMedia();
+    if (localStream) localStream.getTracks().forEach(t => remotePeerConn.addTrack(t, localStream));
+
+    remotePeerConn.ontrack = (event) => {
+        document.getElementById('remoteNoPatient').style.display = 'none';
+        document.getElementById('remotePatientVideo').srcObject = event.streams[0];
+    };
+
+    remotePeerConn.onicecandidate = (event) => {
+        if (event.candidate) remoteSendSignal({ type: 'ice_candidate', candidate: event.candidate });
+    };
+
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    remoteWs = new WebSocket(`${proto}://${window.location.host}/ws/signal/${remoteRoomId}?role=doctor&token=${encodeURIComponent(remoteToken)}`);
+
+    remoteWs.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+            case 'peer_already_present':
+            case 'peer_joined':
+                if (msg.role === 'patient') onPatientConnected();
+                break;
+            case 'offer':
+                await remotePeerConn.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                const answer = await remotePeerConn.createAnswer();
+                await remotePeerConn.setLocalDescription(answer);
+                remoteSendSignal({ type: 'answer', sdp: answer });
+                break;
+            case 'ice_candidate':
+                try { await remotePeerConn.addIceCandidate(msg.candidate); } catch (e) { console.warn(e); }
+                break;
+            case 'pose_metrics': {
+                // Same handler used for local sessions — feeds the shared
+                // badges / joint-angle grid / analytics (reps, accuracy, ROM,
+                // stability) from the patient's own on-device computation.
+                // Patient sends long joint names — remap to the short keys
+                // (l_shoulder etc.) the shared pipeline expects.
+                console.log('[remote pose_metrics] sessionActive=', sessionActive, msg);
+                const a = msg.angles || {};
+                const angles = {
+                    l_shoulder: a.left_shoulder,  r_shoulder: a.right_shoulder,
+                    l_elbow:    a.left_elbow,     r_elbow:    a.right_elbow,
+                    l_knee:     a.left_knee,      r_knee:     a.right_knee,
+                };
+                handlePoseData({
+                    detected:      msg.detected !== false && Object.keys(a).length > 0,
+                    angles,
+                    reps:          msg.reps,
+                    stability:     msg.stability,
+                    smoothness:    msg.smoothness,
+                    balance:       msg.balance,
+                    fatigue:       msg.fatigue,
+                    primary_angle: msg.primary_angle,
+                });
+                break;
+            }
+            case 'peer_left':
+                if (msg.role === 'patient') onPatientDisconnected();
+                break;
+        }
+    };
+}
+
+function remoteSendSignal(data) {
+    if (remoteWs && remoteWs.readyState === WebSocket.OPEN) remoteWs.send(JSON.stringify(data));
+}
+
+function onPatientConnected() {
+    remotePatientConnected = true;
+    document.getElementById('remoteSetupView').style.display = 'none';
+    document.getElementById('remoteLiveView').style.display  = 'block';
+    document.getElementById('remoteLiveSub').textContent     = 'Patient connected — session is live';
+    document.getElementById('remoteStatusDot')?.classList.add('live');
+    document.getElementById('statusText').textContent        = 'Connected';
+    document.getElementById('statusDot').className           = 'badge-dot online';
+    document.getElementById('cameraStatusText').textContent  = 'Live';
+    syncRemoteExerciseConfig();   // tell patient which exercise/ROM to use for their rep counting
+    showToast('Patient joined the session!', 'success');
+}
+
+function onPatientDisconnected() {
+    remotePatientConnected = false;
+    document.getElementById('remoteNoPatient').style.display = 'flex';
+    document.getElementById('remoteLiveSub').textContent = 'Patient disconnected — waiting to reconnect...';
+    document.getElementById('remotePatientVideo').srcObject = null;
+    document.getElementById('statusText').textContent = 'Reconnecting...';
+    document.getElementById('statusDot').className    = 'badge-dot error';
+}
+
+// ─── Push exercise/ROM config to the patient over the signaling channel so
+// their on-device rep counting uses the doctor's current selection ────────
+function syncRemoteExerciseConfig() {
+    remoteSendSignal({
+        type: 'session_config',
+        exercise_type: document.getElementById('exerciseType')?.value || null,
+        target_rom:    parseFloat(document.getElementById('targetRom')?.value) || 90,
+    });
+}
+
+// Controls
+function toggleRemoteMic() {
+    if (!remoteLocalStream) return;
+    remoteMicOn = !remoteMicOn;
+    remoteLocalStream.getAudioTracks().forEach(t => t.enabled = remoteMicOn);
+    document.getElementById('remoteMicBtn').innerHTML =
+        `<i class="fas fa-microphone${remoteMicOn ? '' : '-slash'}"></i> ${remoteMicOn ? 'Mute' : 'Unmute'}`;
+}
+
+function toggleRemoteCam() {
+    if (!remoteLocalStream) return;
+    remoteCamOn = !remoteCamOn;
+    remoteLocalStream.getVideoTracks().forEach(t => t.enabled = remoteCamOn);
+    document.getElementById('remoteCamBtn').innerHTML =
+        `<i class="fas fa-video${remoteCamOn ? '' : '-slash'}"></i> Camera`;
+}
+
+// End session
+// skipConfirm=true is used when this is triggered automatically (e.g. the
+// exercise timer running out) rather than the doctor clicking the button —
+// no need to pop a confirm() dialog in that case.
+async function endRemoteSession(skipConfirm = false) {
+    if (!skipConfirm && !confirm('End this remote session? The patient\'s link will stop working.')) return;
+
+    // If an exercise session is mid-flight, stop it first so it gets saved
+    // (same as a local session getting cut short). Guarded against
+    // re-entering stopSession() when *it* is the one calling us.
+    if (sessionActive) stopSession();
+
+    if (remoteRoomId) {
+        try { await fetch(`/api/telehealth/close-room/${remoteRoomId}`, { method: 'POST' }); }
+        catch (e) { console.error('close-room failed:', e); }
+    }
+
+    if (remoteLocalStream) remoteLocalStream.getTracks().forEach(t => t.stop());
+    if (remotePeerConn) remotePeerConn.close();
+    if (remoteWs) remoteWs.close();
+
+    remoteRoomId = remoteToken = remoteWs = remotePeerConn = remoteLocalStream = null;
+    remotePatientConnected = false;
+
+    // Hand the shared camera screen back to local-camera mode
+    exitRemoteVideoMode();
+
+    // Reset modal back to setup view for next time
+    document.getElementById('remoteSetupView').style.display = 'block';
+    document.getElementById('remoteLiveView').style.display  = 'none';
+    document.getElementById('remoteLinkBox').style.display   = 'none';
+    document.getElementById('remoteLinkInput').value         = '';
+    document.getElementById('remoteStatusDot')?.classList.remove('live');
+    document.getElementById('remoteGenerateBtn').innerHTML    = '<i class="fas fa-link"></i> Generate Link';
+
+    closeRemoteModal();
+    showToast('Remote session ended', 'success');
+}
+
+window.addEventListener('beforeunload', () => {
+    if (remoteLocalStream) remoteLocalStream.getTracks().forEach(t => t.stop());
+    if (remotePeerConn) remotePeerConn.close();
 });
 </script>
 </body>

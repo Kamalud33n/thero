@@ -3,370 +3,314 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Patients - RehabAI</title>
+    <title>Patients - MedNova Therapy System</title>
     <link rel="stylesheet" href="/static/style.css?v=2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .empty-state {
-            grid-column: 1 / -1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            padding: 60px 20px;
-            color: var(--text-secondary);
-            text-align: center;
-        }
-        .empty-state i   { color: var(--text-light); margin-bottom: 8px; }
-        .empty-state h3  { font-size: 18px; font-weight: 600; color: var(--text-primary); }
-        .empty-state p   { font-size: 14px; }
-
-        .patients-summary {
-            padding: 8px 16px;
-            margin-bottom: 16px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            background: rgba(76,175,80,0.06);
-            border-radius: 8px;
-        }
-
-        .patient-therapist {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin: 6px 0 10px;
-        }
-
-        .metric-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        /* smooth card fade-out on delete */
-        .patient-card {
-            transition: opacity 0.3s ease, transform 0.3s ease;
-        }
-        .patient-card.removing {
-            opacity: 0;
-            transform: scale(0.95);
-            pointer-events: none;
-        }
-    </style>
 </head>
 <body>
-<div class="app-container">
-
-    <!-- Sidebar -->
-    <aside class="sidebar glass-effect">
-        <div class="sidebar-header">
-            <div class="logo-container">
-                <img class="logo-icon" src="/assets/logo.png?v=2" alt="MedNova logo" width="44" height="44">
-                <div class="logo-text">
-                    <span class="logo-title">MedNova</span>
-                    <span class="logo-subtitle">Therapy System</span>
-                </div>
-            </div>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loader-container">
+            <div class="loader-ring"></div>
+            <div class="loader-text">Loading Patients...</div>
         </div>
-        <nav class="sidebar-nav">
-            <a href="/dashboard" class="nav-item"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
-            <a href="/patients"  class="nav-item active"><i class="fas fa-users"></i><span>Patients</span></a>
-            <a href="/session"   class="nav-item"><i class="fas fa-video"></i><span>Start Session</span></a>
-            <a href="/reports"   class="nav-item"><i class="fas fa-file-alt"></i><span>Reports</span></a>
-            <a href="/analytics" class="nav-item"><i class="fas fa-chart-line"></i><span>Analysis</span></a>
-            <a href="#"          class="nav-item"><i class="fas fa-cog"></i><span>Settings</span></a>
-        </nav>
-        <div class="sidebar-footer">
-            <div class="status-indicator">
-                <span class="status-dot" id="systemDot"></span>
-                <span class="status-text" id="systemStatusText">Checking...</span>
-            </div>
-            <div class="version-info">v2.0.0</div>
-        </div>
-    </aside>
+    </div>
 
-    <!-- Main Content -->
-    <main class="main-content">
-        <!-- Top Bar -->
-        <header class="top-bar glass-effect">
-            <div class="top-bar-left">
-                <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
-                <div class="breadcrumb">
-                    <span>Home</span>
-                    <i class="fas fa-chevron-right"></i>
-                    <span class="active">Patients</span>
-                </div>
-            </div>
-            <div class="top-bar-right">
-                <div class="status-badge">
-                    <span class="badge-dot" id="aiBadgeDot"></span>
-                    <span id="aiStatusText">Checking...</span>
-                </div>
-                <div class="camera-status">
-                    <i class="fas fa-camera"></i>
-                    <span id="cameraStatusText">Disconnected</span>
-                </div>
-                <button class="logout-btn" onclick="handleLogout()">
-                    <i class="fas fa-sign-out-alt"></i>
-                </button>
-            </div>
-        </header>
-
-        <!-- Patients Content -->
-        <div class="content-area">
-            <div class="patients-header">
-                <div class="header-left">
-                    <h2>Patient Management</h2>
-                    <p class="header-subtitle">Manage and monitor all patients</p>
-                </div>
-                <div class="header-right">
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="patientSearch" placeholder="Search patients...">
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-effect">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <img class="logo-icon" src="/assets/logo.png?v=2" alt="MedNova logo" width="44" height="44">
+                    <div class="logo-text">
+                        <span class="logo-title">MedNova</span>
+                        <span class="logo-subtitle">Therapy System</span>
                     </div>
-                    <button class="btn-primary" onclick="openAddPatientModal()">
-                        <i class="fas fa-plus"></i> Add Patient
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/dashboard" class="nav-item"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
+                <a href="/patients"  class="nav-item active"><i class="fas fa-users"></i><span>Patients</span></a>
+                <a href="/session"   class="nav-item"><i class="fas fa-video"></i><span>Start Session</span></a>
+                <a href="/reports"   class="nav-item"><i class="fas fa-file-alt"></i><span>Reports</span></a>
+                <a href="/analytics" class="nav-item"><i class="fas fa-chart-line"></i><span>Analysis</span></a>
+                <a href="#"          class="nav-item"><i class="fas fa-cog"></i><span>Settings</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot" id="systemDot"></span>
+                    <span class="status-text" id="systemStatusText">Checking...</span>
+                </div>
+                <div class="version-info">v2.0.0</div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <header class="top-bar glass-effect">
+                <div class="top-bar-left">
+                    <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                    <div class="breadcrumb">
+                        <span>Home</span>
+                        <i class="fas fa-chevron-right"></i>
+                        <span class="active">Patients</span>
+                    </div>
+                </div>
+                <div class="top-bar-right">
+                    <button class="logout-btn" onclick="handleLogout()">
+                        <i class="fas fa-sign-out-alt"></i>
                     </button>
                 </div>
+            </header>
+
+            <!-- Page Content -->
+            <div class="content-area">
+
+                <!-- Header: title + search + add button -->
+                <div class="patients-header">
+                    <div class="header-left">
+                        <h2>Patients</h2>
+                        <div class="header-subtitle" id="patientCountText">Loading...</div>
+                    </div>
+                    <div class="header-right">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchInput" placeholder="Search by name, ID or phone...">
+                        </div>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); cursor:pointer;">
+                            <input type="checkbox" id="includeInactiveToggle" onchange="loadPatients()">
+                            Show inactive
+                        </label>
+                        <button class="btn-primary" onclick="openAddModal()">
+                            <i class="fas fa-user-plus"></i> Add Patient
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Patients grid -->
+                <div class="patients-grid" id="patientsGrid">
+                    <div class="activity-empty">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Loading patients...</span>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Add / Edit Patient Modal -->
+    <div class="modal" id="patientModal">
+        <div class="modal-content glass-effect">
+            <div class="modal-header">
+                <h3 id="patientModalTitle">Add Patient</h3>
+                <button class="modal-close" onclick="closePatientModal()"><i class="fas fa-times"></i></button>
             </div>
 
-            <!-- Summary bar -->
-            <div class="patients-summary" id="patientsSummary" style="display:none">
-                <span id="summaryText"></span>
-            </div>
+            <form id="patientForm" onsubmit="submitPatientForm(event)">
+                <input type="hidden" id="patientIdField" value="">
 
-            <!-- Patients Grid -->
-            <div class="patients-grid" id="patientsGrid">
-                <div class="loading-placeholder">
-                    <i class="fas fa-spinner fa-spin"></i> Loading patients...
+                <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px;">
+                    <div class="patient-avatar" id="photoPreviewWrap" style="width:64px; height:64px;">
+                        <i class="fas fa-user" id="photoPreviewIcon"></i>
+                        <img id="photoPreviewImg" style="display:none;">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Photo</label>
+                        <input type="file" id="photoInput" accept="image/*" class="form-input" onchange="previewPhoto(event)">
+                    </div>
                 </div>
-            </div>
-        </div>
-    </main>
-</div>
 
-<!-- ─── Add / Edit Patient Modal ─────────────────────────────────────── -->
-<div class="modal" id="patientModal">
-    <div class="modal-content glass-effect">
-        <div class="modal-header">
-            <h3 id="modalTitle">Add New Patient</h3>
-            <button class="modal-close" onclick="closePatientModal()">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <form id="patientForm" enctype="multipart/form-data">
-            <input type="hidden" id="patientId" name="patient_id">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+                    <div class="form-group">
+                        <label>Full Name *</label>
+                        <input type="text" id="f_name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Age *</label>
+                        <input type="number" id="f_age" class="form-input" min="0" max="120" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Gender *</label>
+                        <select id="f_gender" class="form-input" required>
+                            <option value="">Select</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Phone</label>
+                        <input type="text" id="f_phone" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="f_email" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Weight (kg)</label>
+                        <input type="number" step="0.1" id="f_weight" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Height (cm)</label>
+                        <input type="number" step="0.1" id="f_height" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Affected Body Part</label>
+                        <input type="text" id="f_affected_body_part" class="form-input" placeholder="e.g. Right Shoulder">
+                    </div>
+                    <div class="form-group">
+                        <label>Doctor Name</label>
+                        <input type="text" id="f_doctor_name" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Therapist Name</label>
+                        <input type="text" id="f_therapist_name" class="form-input">
+                    </div>
+                </div>
 
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Full Name *</label>
-                    <input type="text" id="patientName" name="name" required class="form-input">
-                </div>
-                <div class="form-group">
-                    <label>Age *</label>
-                    <input type="number" id="patientAge" name="age" required min="1" max="120" class="form-input">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Gender *</label>
-                    <select id="patientGender" name="gender" required class="form-input">
-                        <option value="">Select</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Weight (kg)</label>
-                    <input type="number" id="patientWeight" name="weight" step="0.1" class="form-input">
-                </div>
-                <div class="form-group">
-                    <label>Height (cm)</label>
-                    <input type="number" id="patientHeight" name="height" step="0.1" class="form-input">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
+                <div class="form-group" style="margin-bottom:16px;">
                     <label>Diagnosis</label>
-                    <input type="text" id="patientDiagnosis" name="diagnosis" class="form-input">
+                    <textarea id="f_diagnosis" class="form-input"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>Medical History</label>
+                    <textarea id="f_medical_history" class="form-input"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>Previous Injury</label>
+                    <textarea id="f_previous_injury" class="form-input"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>Current Treatment</label>
+                    <textarea id="f_current_treatment" class="form-input"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>Affected Body Part</label>
-                    <input type="text" id="patientAffectedPart" name="affected_body_part" class="form-input">
+                    <label>Exercise Plan</label>
+                    <textarea id="f_exercise_plan" class="form-input"></textarea>
                 </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Doctor Name</label>
-                    <input type="text" id="patientDoctor" name="doctor_name" class="form-input">
-                </div>
-                <div class="form-group">
-                    <label>Therapist Name</label>
-                    <input type="text" id="patientTherapist" name="therapist_name" class="form-input">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Phone</label>
-                    <input type="tel" id="patientPhone" name="phone" class="form-input">
-                </div>
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="patientEmail" name="email" class="form-input">
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Medical History</label>
-                <textarea id="patientMedicalHistory" name="medical_history" class="form-input" rows="2"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Previous Injury</label>
-                <textarea id="patientPrevInjury" name="previous_injury" class="form-input" rows="2"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Current Treatment</label>
-                <textarea id="patientCurrTreatment" name="current_treatment" class="form-input" rows="2"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Exercise Plan</label>
-                <textarea id="patientExercisePlan" name="exercise_plan" class="form-input" rows="2"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Photo</label>
-                <input type="file" id="patientPhoto" name="photo" accept="image/*" class="form-input">
-                <div id="photoPreview" style="margin-top:8px"></div>
-            </div>
 
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closePatientModal()">Cancel</button>
+                    <button type="submit" class="btn-primary" id="patientFormSubmitBtn">
+                        <i class="fas fa-save"></i> Save Patient
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View Patient Modal -->
+    <div class="modal" id="viewModal">
+        <div class="modal-content glass-effect">
+            <div class="modal-header">
+                <h3>Patient Profile</h3>
+                <button class="modal-close" onclick="closeViewModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="patient-profile" id="viewModalBody">
+                <!-- populated by JS -->
+            </div>
             <div class="modal-footer">
-                <button type="button" class="btn-secondary" onclick="closePatientModal()">Cancel</button>
-                <button type="submit" class="btn-primary" id="saveBtn">
-                    <i class="fas fa-save"></i> Save Patient
-                </button>
+                <button class="btn-secondary" onclick="closeViewModal()">Close</button>
+                <a class="btn-primary" id="viewModalStartSessionBtn" href="/session">
+                    <i class="fas fa-play"></i> Start Session
+                </a>
             </div>
-        </form>
-    </div>
-</div>
-
-<!-- ─── View Patient Modal ────────────────────────────────────────────── -->
-<div class="modal" id="viewPatientModal">
-    <div class="modal-content glass-effect" style="max-width:720px">
-        <div class="modal-header">
-            <h3>Patient Details</h3>
-            <button class="modal-close" onclick="closeViewPatientModal()">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div id="patientDetails">
-            <div class="loading-placeholder"><i class="fas fa-spinner fa-spin"></i></div>
         </div>
     </div>
-</div>
 
-<script src="/static/app.js"></script>
-<script>
-// ─── State ────────────────────────────────────────────────────────────────
-let currentEditId = null;
-let searchTimer   = null;
+    <script src="/static/app.js"></script>
+    <script>
+    // State
+    let allPatients   = [];
+    let searchTimer   = null;
 
-// ─── Boot ─────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('menuToggle')?.addEventListener('click', () =>
-        document.querySelector('.sidebar').classList.toggle('active'));
+    // Boot 
+    document.addEventListener('DOMContentLoaded', async () => {
+        setTimeout(() => {
+            const ov = document.getElementById('loadingOverlay');
+            if (ov) { ov.classList.add('hidden'); setTimeout(() => ov.remove(), 500); }
+        }, 400);
 
-    // Debounced search
-    document.getElementById('patientSearch').addEventListener('input', e => {
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => loadPatients(e.target.value.trim()), 350);
+        document.getElementById('menuToggle')?.addEventListener('click', () =>
+            document.querySelector('.sidebar').classList.toggle('active'));
+
+        document.getElementById('searchInput').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadPatients, 300);
+        });
+
+        await Promise.all([checkHealth(), loadPatients()]);
     });
 
-    // Photo preview
-    document.getElementById('patientPhoto').addEventListener('change', function() {
-        const prev = document.getElementById('photoPreview');
-        prev.innerHTML = this.files[0]
-            ? `<img src="${URL.createObjectURL(this.files[0])}"
-                    style="width:80px;height:80px;border-radius:50%;object-fit:cover">`
-            : '';
-    });
-
-    // Close modals on backdrop click
-    document.querySelectorAll('.modal').forEach(m =>
-        m.addEventListener('click', e => { if (e.target === m) m.classList.remove('active'); })
-    );
-
-    // Escape key
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape')
-            document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
-    });
-
-    checkHealth();
-    loadPatients();
-});
-
-// ─── Health check ─────────────────────────────────────────────────────────
-async function checkHealth() {
-    try {
-        const d  = await (await fetch('/api/health')).json();
-        const ok = d.status === 'healthy';
-        document.getElementById('systemDot').className          = 'status-dot ' + (ok ? 'online' : 'offline');
-        document.getElementById('systemStatusText').textContent = ok ? 'System Online' : 'System Error';
-        document.getElementById('cameraStatusText').textContent = d.camera_running   ? 'Connected'  : 'Disconnected';
-        document.getElementById('aiBadgeDot').style.background  = d.mediapipe_ready  ? '#4CAF50'    : '#f44336';
-        document.getElementById('aiStatusText').textContent      = d.mediapipe_ready  ? 'AI Ready'   : 'AI Offline';
-    } catch {
-        document.getElementById('systemStatusText').textContent = 'Offline';
-    }
-}
-
-// ─── Load patients ────────────────────────────────────────────────────────
-async function loadPatients(search = '') {
-    const grid = document.getElementById('patientsGrid');
-    grid.innerHTML = '<div class="loading-placeholder"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
-
-    try {
-        const url      = search ? `/api/patients?search=${encodeURIComponent(search)}` : '/api/patients';
-        const patients = await (await fetch(url)).json();
-
-        // Summary bar
-        const summary = document.getElementById('patientsSummary');
-        if (patients.length) {
-            const active = patients.filter(p => p.is_active).length;
-            document.getElementById('summaryText').textContent =
-                `${patients.length} patient${patients.length !== 1 ? 's' : ''} found · ${active} active`;
-            summary.style.display = 'block';
-        } else {
-            summary.style.display = 'none';
+    async function checkHealth() {
+        try {
+            const d = await (await fetch('/api/health')).json();
+            const dot     = document.getElementById('systemDot');
+            const sysText = document.getElementById('systemStatusText');
+            const ok = d.status === 'healthy';
+            dot.className       = 'status-dot ' + (ok ? 'online' : 'offline');
+            sysText.textContent = ok ? 'System Online' : 'System Error';
+        } catch {
+            document.getElementById('systemStatusText').textContent = 'Offline';
         }
+    }
+
+    // Load + render patients
+    async function loadPatients() {
+        const grid = document.getElementById('patientsGrid');
+        try {
+            const search          = document.getElementById('searchInput').value.trim();
+            const includeInactive = document.getElementById('includeInactiveToggle').checked;
+            const params = new URLSearchParams();
+            if (search) params.set('search', search);
+            if (includeInactive) params.set('include_inactive', 'true');
+
+            const res = await fetch(`/api/patients?${params.toString()}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            allPatients = await res.json();
+
+            document.getElementById('patientCountText').textContent =
+                `${allPatients.length} patient${allPatients.length === 1 ? '' : 's'}`;
+
+            renderPatients(allPatients);
+        } catch (e) {
+            console.error('loadPatients:', e);
+            grid.innerHTML = `
+                <div class="activity-empty">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>Failed to load patients</span>
+                    <span class="empty-sub">Check that the server is running and try again</span>
+                </div>`;
+        }
+    }
+
+    function renderPatients(patients) {
+        const grid = document.getElementById('patientsGrid');
 
         if (!patients.length) {
             grid.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-users fa-3x"></i>
-                    <h3>${search ? `No results for "${search}"` : 'No Patients Yet'}</h3>
-                    <p>${search ? 'Try a different search term' : 'Add your first patient to get started'}</p>
-                    ${!search ? `<button class="btn-primary" onclick="openAddPatientModal()">
-                        <i class="fas fa-plus"></i> Add Patient</button>` : ''}
+                <div class="activity-empty">
+                    <i class="fas fa-user-injured"></i>
+                    <span>No patients found</span>
+                    <span class="empty-sub">Click "Add Patient" to register your first patient</span>
                 </div>`;
             return;
         }
 
         grid.innerHTML = patients.map(p => {
-            const accColor = p.avg_accuracy >= 80 ? '#4CAF50' : p.avg_accuracy >= 60 ? '#FF9800' : '#f44336';
+            const initials = (p.name || '?').split(' ').filter(Boolean).slice(0, 2)
+                                .map(w => w[0].toUpperCase()).join('');
+            const avatar = p.photo
+                ? `<img src="data:image/jpeg;base64,${p.photo}" alt="${escapeHtml(p.name)}">`
+                : initials;
+
             return `
-            <div class="patient-card glass-effect animate-slide-up"
-                 data-patient-id="${p.id}">
+            <div class="patient-card glass-effect animate-slide-up">
                 <div class="patient-card-header">
-                    <div class="patient-avatar">
-                        ${p.photo
-                            ? `<img src="data:image/jpeg;base64,${p.photo}" alt="${p.name}">`
-                            : `<span>${p.name.charAt(0).toUpperCase()}</span>`}
-                    </div>
+                    <div class="patient-avatar">${avatar}</div>
                     <div class="patient-status">
                         <span class="status-badge ${p.is_active ? 'active' : 'inactive'}">
                             ${p.is_active ? 'Active' : 'Inactive'}
@@ -374,306 +318,236 @@ async function loadPatients(search = '') {
                     </div>
                 </div>
                 <div class="patient-card-body">
-                    <h4 class="patient-name">${p.name}</h4>
+                    <div class="patient-name">${escapeHtml(p.name)}</div>
                     <div class="patient-meta">
-                        <span><i class="fas fa-user"></i> ${p.age} yrs</span>
-                        <span><i class="fas fa-venus-mars"></i> ${p.gender}</span>
-                        <span><i class="fas fa-stethoscope"></i> ${p.diagnosis || '—'}</span>
+                        <span><i class="fas fa-birthday-cake"></i> ${p.age ?? '--'} yrs</span>
+                        <span><i class="fas fa-venus-mars"></i> ${escapeHtml(p.gender || '--')}</span>
+                        ${p.affected_body_part ? `<span><i class="fas fa-bone"></i> ${escapeHtml(p.affected_body_part)}</span>` : ''}
+                        ${p.phone ? `<span><i class="fas fa-phone"></i> ${escapeHtml(p.phone)}</span>` : ''}
                     </div>
                     <div class="patient-stats">
                         <div class="patient-stat">
-                            <span class="stat-number">${p.sessions_count ?? 0}</span>
-                            <span class="stat-label">Sessions</span>
+                            <div class="stat-number">${p.sessions_count}</div>
+                            <div class="stat-label">Sessions</div>
                         </div>
                         <div class="patient-stat">
-                            <span class="stat-number" style="color:${accColor}">${p.avg_accuracy ?? 0}%</span>
-                            <span class="stat-label">Accuracy</span>
+                            <div class="stat-number">${p.avg_accuracy}%</div>
+                            <div class="stat-label">Avg Accuracy</div>
                         </div>
                     </div>
-                    ${p.therapist_name
-                        ? `<div class="patient-therapist">
-                               <i class="fas fa-user-md"></i> ${p.therapist_name}
-                           </div>` : ''}
                     <div class="patient-actions">
-                        <button class="btn-icon" onclick="viewPatient('${p.id}')" title="View">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                        <button class="btn-icon" onclick="editPatient('${p.id}')" title="Edit">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn-icon danger"
-                                onclick="deletePatient('${p.id}', '${p.name.replace(/'/g, "\\'")}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                        <button class="btn-icon"
-                                onclick="generateReport('${p.id}', '${p.name.replace(/'/g, "\\'")}')">
-                            <i class="fas fa-file-pdf"></i>
-                        </button>
+                        <button class="btn-icon" title="View" onclick="viewPatient('${p.id}')"><i class="fas fa-eye"></i></button>
+                        <button class="btn-icon" title="Edit" onclick="editPatient('${p.id}')"><i class="fas fa-pen"></i></button>
+                        <button class="btn-icon danger" title="Deactivate" onclick="deletePatient('${p.id}', '${escapeHtml(p.name)}')"><i class="fas fa-user-slash"></i></button>
                     </div>
                 </div>
             </div>`;
         }).join('');
-
-    } catch(e) {
-        console.error('loadPatients:', e);
-        grid.innerHTML = '<p style="color:red;padding:1rem">Failed to load patients.</p>';
     }
-}
 
-// ─── Add modal ────────────────────────────────────────────────────────────
-function openAddPatientModal() {
-    currentEditId = null;
-    document.getElementById('modalTitle').textContent = 'Add New Patient';
-    document.getElementById('patientForm').reset();
-    document.getElementById('patientId').value    = '';
-    document.getElementById('photoPreview').innerHTML = '';
-    document.getElementById('patientModal').classList.add('active');
-}
+    function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str ?? '';
+        return d.innerHTML;
+    }
 
-function closePatientModal() {
-    document.getElementById('patientModal').classList.remove('active');
-}
-
-// ─── Edit ─────────────────────────────────────────────────────────────────
-async function editPatient(pid) {
-    try {
-        const p = await (await fetch(`/api/patients/${pid}`)).json();
-        currentEditId = pid;
-        document.getElementById('modalTitle').textContent          = 'Edit Patient';
-        document.getElementById('patientId').value                 = pid;
-        document.getElementById('patientName').value               = p.name               ?? '';
-        document.getElementById('patientAge').value                = p.age                ?? '';
-        document.getElementById('patientGender').value             = p.gender             ?? '';
-        document.getElementById('patientWeight').value             = p.weight             ?? '';
-        document.getElementById('patientHeight').value             = p.height             ?? '';
-        document.getElementById('patientDiagnosis').value          = p.diagnosis          ?? '';
-        document.getElementById('patientAffectedPart').value       = p.affected_body_part ?? '';
-        document.getElementById('patientDoctor').value             = p.doctor_name        ?? '';
-        document.getElementById('patientTherapist').value          = p.therapist_name     ?? '';
-        document.getElementById('patientPhone').value              = p.phone              ?? '';
-        document.getElementById('patientEmail').value              = p.email              ?? '';
-        document.getElementById('patientMedicalHistory').value     = p.medical_history    ?? '';
-        document.getElementById('patientPrevInjury').value         = p.previous_injury    ?? '';
-        document.getElementById('patientCurrTreatment').value      = p.current_treatment  ?? '';
-        document.getElementById('patientExercisePlan').value       = p.exercise_plan      ?? '';
-
-        document.getElementById('photoPreview').innerHTML = p.photo
-            ? `<img src="data:image/jpeg;base64,${p.photo}"
-                    style="width:80px;height:80px;border-radius:50%;object-fit:cover">`
-            : '';
-
+    // Add / Edit modal
+    function openAddModal() {
+        document.getElementById('patientModalTitle').textContent = 'Add Patient';
+        document.getElementById('patientForm').reset();
+        document.getElementById('patientIdField').value = '';
+        resetPhotoPreview();
         document.getElementById('patientModal').classList.add('active');
-    } catch(e) {
-        console.error('editPatient:', e);
-        showToast('Error loading patient data', 'error');
     }
-}
 
-// ─── Save (create / update) ───────────────────────────────────────────────
-document.getElementById('patientForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
+    async function editPatient(id) {
+        try {
+            const p = await (await fetch(`/api/patients/${id}`)).json();
+            document.getElementById('patientModalTitle').textContent = 'Edit Patient';
+            document.getElementById('patientIdField').value = p.id;
+            document.getElementById('f_name').value                = p.name || '';
+            document.getElementById('f_age').value                 = p.age ?? '';
+            document.getElementById('f_gender').value               = p.gender || '';
+            document.getElementById('f_phone').value                = p.phone || '';
+            document.getElementById('f_email').value                = p.email || '';
+            document.getElementById('f_weight').value               = p.weight ?? '';
+            document.getElementById('f_height').value               = p.height ?? '';
+            document.getElementById('f_affected_body_part').value   = p.affected_body_part || '';
+            document.getElementById('f_doctor_name').value          = p.doctor_name || '';
+            document.getElementById('f_therapist_name').value       = p.therapist_name || '';
+            document.getElementById('f_diagnosis').value            = p.diagnosis || '';
+            document.getElementById('f_medical_history').value      = p.medical_history || '';
+            document.getElementById('f_previous_injury').value      = p.previous_injury || '';
+            document.getElementById('f_current_treatment').value    = p.current_treatment || '';
+            document.getElementById('f_exercise_plan').value        = p.exercise_plan || '';
 
-    const pid      = document.getElementById('patientId').value;
-    const btn      = document.getElementById('saveBtn');
-    const formData = new FormData(this);
+            resetPhotoPreview();
+            if (p.photo) {
+                document.getElementById('photoPreviewIcon').style.display = 'none';
+                const img = document.getElementById('photoPreviewImg');
+                img.src = `data:image/jpeg;base64,${p.photo}`;
+                img.style.display = 'block';
+            }
 
-    btn.disabled  = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-
-    try {
-        const url    = pid ? `/api/patients/${pid}` : '/api/patients';
-        const method = pid ? 'PUT' : 'POST';
-        const res    = await fetch(url, { method, body: formData });
-        const result = await res.json();
-
-        if (res.ok) {
-            showToast(result.message || 'Patient saved successfully', 'success');
-            closePatientModal();
-            // ✅ reload with current search term
-            await loadPatients(document.getElementById('patientSearch').value.trim());
-        } else {
-            showToast(result.detail || 'Error saving patient', 'error');
+            document.getElementById('patientModal').classList.add('active');
+        } catch (e) {
+            console.error('editPatient:', e);
+            showToast('Could not load patient details', 'error');
         }
-    } catch(e) {
-        console.error('savePatient:', e);
-        showToast('Error saving patient', 'error');
-    } finally {
-        btn.disabled  = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> Save Patient';
     }
-});
 
-// ─── View ─────────────────────────────────────────────────────────────────
-async function viewPatient(pid) {
-    document.getElementById('viewPatientModal').classList.add('active');
-    document.getElementById('patientDetails').innerHTML =
-        '<div class="loading-placeholder"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    function closePatientModal() {
+        document.getElementById('patientModal').classList.remove('active');
+    }
 
-    try {
-        const p        = await (await fetch(`/api/patients/${pid}`)).json();
-        const sessions = p.sessions || [];
-        const avgAcc   = sessions.length
-            ? (sessions.reduce((s, x) => s + x.accuracy, 0) / sessions.length).toFixed(1) : 0;
-        const avgRom   = sessions.length
-            ? (sessions.reduce((s, x) => s + x.rom,      0) / sessions.length).toFixed(1) : 0;
+    function previewPhoto(evt) {
+        const file = evt.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            document.getElementById('photoPreviewIcon').style.display = 'none';
+            const img = document.getElementById('photoPreviewImg');
+            img.src = reader.result;
+            img.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    }
 
-        document.getElementById('patientDetails').innerHTML = `
-        <div class="patient-profile">
-            <div class="profile-header">
-                <div class="profile-avatar">
-                    ${p.photo
-                        ? `<img src="data:image/jpeg;base64,${p.photo}" alt="${p.name}">`
-                        : `<span>${p.name.charAt(0).toUpperCase()}</span>`}
-                </div>
-                <div class="profile-info">
-                    <h4>${p.name}</h4>
-                    <p style="color:#888;font-size:.85rem">ID: ${p.id}</p>
-                    <p>${p.age} yrs · ${p.gender}</p>
-                    <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
-                        <span class="metric-badge" style="background:#4CAF5020;color:#4CAF50">
-                            <i class="fas fa-bullseye"></i> ${avgAcc}% Accuracy
-                        </span>
-                        <span class="metric-badge" style="background:#2196F320;color:#2196F3">
-                            <i class="fas fa-arrows-alt-h"></i> ${avgRom}° ROM
-                        </span>
+    function resetPhotoPreview() {
+        document.getElementById('photoInput').value = '';
+        document.getElementById('photoPreviewIcon').style.display = 'block';
+        const img = document.getElementById('photoPreviewImg');
+        img.style.display = 'none';
+        img.src = '';
+    }
+
+    async function submitPatientForm(evt) {
+        evt.preventDefault();
+        const id  = document.getElementById('patientIdField').value;
+        const btn = document.getElementById('patientFormSubmitBtn');
+
+        const fd = new FormData();
+        fd.append('name', document.getElementById('f_name').value);
+        fd.append('age', document.getElementById('f_age').value);
+        fd.append('gender', document.getElementById('f_gender').value);
+        fd.append('weight', document.getElementById('f_weight').value);
+        fd.append('height', document.getElementById('f_height').value);
+        fd.append('diagnosis', document.getElementById('f_diagnosis').value);
+        fd.append('affected_body_part', document.getElementById('f_affected_body_part').value);
+        fd.append('doctor_name', document.getElementById('f_doctor_name').value);
+        fd.append('therapist_name', document.getElementById('f_therapist_name').value);
+        fd.append('phone', document.getElementById('f_phone').value);
+        fd.append('email', document.getElementById('f_email').value);
+        fd.append('medical_history', document.getElementById('f_medical_history').value);
+        fd.append('previous_injury', document.getElementById('f_previous_injury').value);
+        fd.append('current_treatment', document.getElementById('f_current_treatment').value);
+        fd.append('exercise_plan', document.getElementById('f_exercise_plan').value);
+        if (id) fd.append('is_active', 'true');
+
+        const photoFile = document.getElementById('photoInput').files[0];
+        if (photoFile) fd.append('photo', photoFile);
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+        try {
+            // Don't set a Content-Type header here — the browser needs to
+            // add its own multipart boundary automatically for FormData.
+            const res = await fetch(id ? `/api/patients/${id}` : '/api/patients', {
+                method: id ? 'PUT' : 'POST',
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to save patient');
+
+            showToast(id ? 'Patient updated' : 'Patient added', 'success');
+            closePatientModal();
+            loadPatients();
+        } catch (e) {
+            console.error('submitPatientForm:', e);
+            showToast(e.message || 'Failed to save patient', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save"></i> Save Patient';
+        }
+    }
+
+    // View modal
+    async function viewPatient(id) {
+        try {
+            const p = await (await fetch(`/api/patients/${id}`)).json();
+            const initials = (p.name || '?').split(' ').filter(Boolean).slice(0, 2)
+                                .map(w => w[0].toUpperCase()).join('');
+            const avatar = p.photo
+                ? `<img src="data:image/jpeg;base64,${p.photo}" alt="${escapeHtml(p.name)}">`
+                : initials;
+
+            const sessions = p.sessions || [];
+            const sessionsHtml = sessions.length
+                ? sessions.slice(0, 5).map(s => `
+                    <div class="activity-item">
+                        <div class="activity-details">
+                            <div class="activity-title">${escapeHtml(s.exercise_type)}</div>
+                            <div class="activity-meta">
+                                <span>${new Date(s.start_time).toLocaleDateString()}</span>
+                                <span>•</span>
+                                <span>Accuracy: ${(s.accuracy_percentage ?? 0).toFixed(1)}%</span>
+                            </div>
+                        </div>
+                    </div>`).join('')
+                : `<div class="empty-sub" style="padding:12px 0;">No sessions yet</div>`;
+
+            document.getElementById('viewModalBody').innerHTML = `
+                <div class="profile-header">
+                    <div class="profile-avatar">${avatar}</div>
+                    <div class="profile-info">
+                        <h4>${escapeHtml(p.name)}</h4>
+                        <p>${p.age} yrs • ${escapeHtml(p.gender)} ${p.affected_body_part ? '• ' + escapeHtml(p.affected_body_part) : ''}</p>
                     </div>
                 </div>
-            </div>
-
-            <div class="profile-details">
-                ${[
-                    ['Diagnosis',         p.diagnosis],
-                    ['Affected Area',     p.affected_body_part],
-                    ['Doctor',            p.doctor_name],
-                    ['Therapist',         p.therapist_name],
-                    ['Phone',             p.phone],
-                    ['Email',             p.email],
-                    ['Weight / Height',   p.weight && p.height ? `${p.weight} kg / ${p.height} cm` : null],
-                    ['Medical History',   p.medical_history],
-                    ['Previous Injury',   p.previous_injury],
-                    ['Current Treatment', p.current_treatment],
-                    ['Exercise Plan',     p.exercise_plan],
-                    ['Total Sessions',    sessions.length],
-                    ['Registered',        new Date(p.date_created).toLocaleDateString()],
-                ].map(([label, val]) => `
-                    <div class="detail-row">
-                        <span class="detail-label">${label}:</span>
-                        <span class="detail-value">${val || '—'}</span>
-                    </div>`).join('')}
-            </div>
-
-            ${sessions.length ? `
-            <div class="recent-sessions">
-                <h5>Recent Sessions (${sessions.length} total)</h5>
-                ${sessions.slice(0, 5).map(s => {
-                    const col = s.accuracy >= 80 ? '#4CAF50' : s.accuracy >= 60 ? '#FF9800' : '#f44336';
-                    return `
-                    <div class="session-item">
-                        <span class="session-exercise">${s.exercise_type}</span>
-                        <span class="session-date">${s.date}</span>
-                        <span style="color:${col};font-weight:600">${s.accuracy.toFixed(1)}%</span>
-                        <span style="color:#2196F3">${s.rom.toFixed(1)}°</span>
-                        <span>${s.completed_reps} reps</span>
-                    </div>`;
-                }).join('')}
-            </div>` : `
-            <div class="activity-empty" style="margin-top:1rem">
-                <i class="fas fa-calendar-times"></i>
-                <span>No sessions yet</span>
-            </div>`}
-
-            <div class="modal-footer" style="margin-top:1rem">
-                <button class="btn-secondary" onclick="closeViewPatientModal()">Close</button>
-                <button class="btn-primary"
-                        onclick="closeViewPatientModal(); editPatient('${p.id}')">
-                    <i class="fas fa-edit"></i> Edit
-                </button>
-                <button class="btn-primary"
-                        onclick="generateReport('${p.id}','${p.name.replace(/'/g,"\\'")}')">
-                    <i class="fas fa-file-pdf"></i> Report
-                </button>
-            </div>
-        </div>`;
-    } catch(e) {
-        console.error('viewPatient:', e);
-        document.getElementById('patientDetails').innerHTML =
-            '<p style="color:red;padding:1rem">Failed to load patient details.</p>';
-    }
-}
-
-function closeViewPatientModal() {
-    document.getElementById('viewPatientModal').classList.remove('active');
-}
-
-// ─── Delete ✅ FIXED ──────────────────────────────────────────────────────
-async function deletePatient(pid, name) {
-    if (!confirm(`Delete patient "${name}"? This cannot be undone.`)) return;
-
-    try {
-        const res    = await fetch(`/api/patients/${pid}`, { method: 'DELETE' });
-        const result = await res.json();
-
-        if (res.ok) {
-            showToast(`${name} removed successfully`, 'success');
-
-            // ✅ Smooth fade-out then remove card from DOM
-            const card = document.querySelector(`[data-patient-id="${pid}"]`);
-            if (card) {
-                card.classList.add('removing');
-                setTimeout(() => {
-                    card.remove();
-                    // Update summary count after card removed
-                    const remaining = document.querySelectorAll('[data-patient-id]').length;
-                    if (remaining === 0) {
-                        // No cards left — reload to show empty state
-                        loadPatients();
-                    } else {
-                        const sumText = document.getElementById('summaryText');
-                        if (sumText) {
-                            const active = document.querySelectorAll('.status-badge.active').length;
-                            sumText.textContent =
-                                `${remaining} patient${remaining !== 1 ? 's' : ''} found · ${active} active`;
-                        }
-                    }
-                }, 300);
-            } else {
-                // Fallback — just reload
-                await loadPatients();
-            }
-        } else {
-            showToast(result.detail || 'Error deleting patient', 'error');
+                <div class="patient-meta" style="font-size:14px;">
+                    ${p.phone ? `<span><i class="fas fa-phone"></i> ${escapeHtml(p.phone)}</span>` : ''}
+                    ${p.email ? `<span><i class="fas fa-envelope"></i> ${escapeHtml(p.email)}</span>` : ''}
+                    ${p.doctor_name ? `<span><i class="fas fa-user-md"></i> Dr. ${escapeHtml(p.doctor_name)}</span>` : ''}
+                </div>
+                ${p.diagnosis ? `<div><strong>Diagnosis:</strong> ${escapeHtml(p.diagnosis)}</div>` : ''}
+                ${p.exercise_plan ? `<div><strong>Exercise Plan:</strong> ${escapeHtml(p.exercise_plan)}</div>` : ''}
+                <div>
+                    <h4 style="margin-bottom:8px;">Recent Sessions</h4>
+                    ${sessionsHtml}
+                </div>
+            `;
+            document.getElementById('viewModalStartSessionBtn').href = `/session?patient_id=${p.id}`;
+            document.getElementById('viewModal').classList.add('active');
+        } catch (e) {
+            console.error('viewPatient:', e);
+            showToast('Could not load patient profile', 'error');
         }
-    } catch(e) {
-        console.error('deletePatient:', e);
-        showToast('Error deleting patient', 'error');
     }
-}
 
-// ─── Report ───────────────────────────────────────────────────────────────
-function generateReport(pid, name) {
-    showToast(`Generating report for ${name || 'patient'}...`, 'success');
-    window.open(`/api/reports/${pid}?report_type=weekly`, '_blank');
-}
+    function closeViewModal() {
+        document.getElementById('viewModal').classList.remove('active');
+    }
 
-// ─── Misc ─────────────────────────────────────────────────────────────────
-function handleLogout() {
-    if (confirm('Are you sure you want to logout?')) window.location.href = '/';
-}
+    // Delete (deactivate)
+    async function deletePatient(id, name) {
+        if (!confirm(`Deactivate ${name}? Their records are kept, but they'll be hidden from the active patient list.`)) return;
+        try {
+            const res = await fetch(`/api/patients/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to deactivate patient');
+            showToast('Patient deactivated', 'success');
+            loadPatients();
+        } catch (e) {
+            console.error('deletePatient:', e);
+            showToast(e.message || 'Failed to deactivate patient', 'error');
+        }
+    }
 
-function showToast(message, type = 'success', duration = 3000) {
-    document.querySelectorAll('.toast').forEach(t => t.remove());
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-        <span>${message}</span>`;
-    document.body.appendChild(toast);
-    requestAnimationFrame(() => toast.classList.add('show'));
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
-    }, duration);
-}
-</script>
+    // Misc
+    function handleLogout() {
+        if (confirm('Are you sure you want to logout?')) window.location.href = '/';
+    }
+    </script>
 </body>
 </html>

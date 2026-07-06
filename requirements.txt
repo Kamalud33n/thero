@@ -16,3 +16,4 @@ httpx
 python-dateutil
 pymysql
 cryptography
+matplotlib

@@ -1,14 +1,3 @@
-"""
-models.py
-All SQLAlchemy ORM models for the Rehabilitation AI System.
-
-Kept separate from app.py so the data layer (tables/columns/relationships)
-is easy to find, review, and migrate independently of the API/route code.
-
-Import models from here wherever they're needed, e.g.:
-    from models import Patient, SessionModel, JointAngle, ExerciseResult, Report, Setting, History
-"""
-
 import uuid
 
 from sqlalchemy import (
@@ -29,6 +18,10 @@ def new_patient_id() -> str:
 
 def new_session_id() -> str:
     return f"SES-{uuid.uuid4().hex[:8].upper()}"
+
+
+def new_room_id() -> str:
+    return f"ROOM-{uuid.uuid4().hex[:8].upper()}"
 
 
 # ─── Models ──────────────────────────────────────────────────────────────────
@@ -136,3 +129,19 @@ class History(Base):
     action     = Column(String(100), nullable=False)
     details    = Column(Text, nullable=True)
     timestamp  = Column(DateTime, default=func.now())
+
+
+class TelehealthRoom(Base):
+
+    __tablename__ = "telehealth_rooms"
+    id            = Column(String(50), primary_key=True, default=new_room_id)
+    token         = Column(String(64), unique=True, nullable=False, index=True)
+    patient_id    = Column(String(50), ForeignKey("patients.id"), nullable=False)
+    doctor_name   = Column(String(100), nullable=True)
+    exercise_type = Column(String(100), nullable=True)
+    status        = Column(String(20), default="pending")  # pending -> live -> closed
+    session_id    = Column(String(50), ForeignKey("sessions.id"), nullable=True)
+    created_at    = Column(DateTime, default=func.now())
+    started_at    = Column(DateTime, nullable=True)
+    closed_at     = Column(DateTime, nullable=True)
+    patient = relationship("Patient")

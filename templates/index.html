@@ -138,7 +138,7 @@
 
     <script src="/static/app.js"></script>
     <script>
-    // ─── Boot ─────────────────────────────────────────────────────────────────
+    // Boot 
     document.addEventListener('DOMContentLoaded', async () => {
         // Hide loading overlay
         setTimeout(() => {
@@ -152,7 +152,7 @@
         await Promise.all([checkHealth(), loadPatients(), loadDashboardData()]);
     });
 
-    // ─── Health ───────────────────────────────────────────────────────────────
+    // Health
     async function checkHealth() {
         try {
             const d = await (await fetch('/api/health')).json();
@@ -174,7 +174,7 @@
         }
     }
 
-    // ─── Patients select ──────────────────────────────────────────────────────
+    // Patients select 
     async function loadPatients() {
         try {
             const patients = await (await fetch('/api/patients')).json();
@@ -187,7 +187,7 @@
         } catch(e) { console.error('loadPatients:', e); }
     }
 
-    // ─── Dashboard data ───────────────────────────────────────────────────────
+    // Dashboard data 
     async function loadDashboardData() {
         try {
             const data = await (await fetch('/api/dashboard')).json();
@@ -244,7 +244,7 @@
         }
     }
 
-    // ─── Recent activity ──────────────────────────────────────────────────────
+    // Recent activity 
     function renderRecentActivity(progress) {
         const list = document.getElementById('recentActivity');
 
@@ -293,7 +293,7 @@
         }).join('');
     }
 
-    // ─── Misc ─────────────────────────────────────────────────────────────────
+    // Misc
     function handleLogout() {
         if (confirm('Are you sure you want to logout?')) window.location.href = '/';
     }

@@ -204,7 +204,7 @@
 
     <script src="/static/app.js"></script>
     <script>
-    // ─── State ────────────────────────────────────────────────────────────────
+    // State
     let _progressChart   = null;
     let _accChart        = null;
     let _romChart        = null;
@@ -212,7 +212,7 @@
     let _dashData        = null; // global dashboard data
     let _activePeriod    = 'all';
 
-    // ─── Boot ─────────────────────────────────────────────────────────────────
+    // Boot
     document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('menuToggle')?.addEventListener('click', () =>
             document.querySelector('.sidebar').classList.toggle('active'));
@@ -227,7 +227,7 @@
         loadReportHistory();
     });
 
-    // ─── Load global dashboard data ───────────────────────────────────────────
+    // Load global dashboard data 
     async function loadDashboard() {
         try {
             const r = await fetch('/api/dashboard');
@@ -239,7 +239,7 @@
         } catch(e) { console.error('loadDashboard:', e); }
     }
 
-    // ─── Load patients dropdown ───────────────────────────────────────────────
+    // Load patients dropdown 
     async function loadPatients() {
         try {
             const patients = await (await fetch('/api/patients')).json();
@@ -253,7 +253,7 @@
         } catch(e) { console.error('loadPatients:', e); }
     }
 
-    // ─── Patient changed → load that patient's sessions ───────────────────────
+    // Patient changed → load that patient's sessions 
     async function onPatientChange() {
         const pid = document.getElementById('reportPatientSelect').value;
         if (!pid) {
@@ -277,7 +277,7 @@
         loadPatientReportHistory(pid);
     }
 
-    // ─── Convert session array → progress format ──────────────────────────────
+    // Convert session array → progress format 
     function sessionsToProgress(sessions) {
         return sessions.map(s => ({
             date:      (s.start_time || '').slice(0, 10),
@@ -288,7 +288,7 @@
         }));
     }
 
-    // ─── Period filter buttons ────────────────────────────────────────────────
+    // Period filter buttons
     function bindPeriodButtons() {
         document.querySelectorAll('.chart-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -305,7 +305,7 @@
         });
     }
 
-    // ─── Progress line chart ──────────────────────────────────────────────────
+    // Progress line chart 
     function drawProgressChart(progress, period) {
         // Filter by period
         const now = new Date();
@@ -350,6 +350,7 @@
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
+                layout: { padding: { top: 12, right: 8 } },
                 plugins: {
                     legend: { display:true, position:'top',
                         labels:{ usePointStyle:true, pointStyle:'circle', padding:20, font:{size:12} } },
@@ -366,7 +367,7 @@
         });
     }
 
-    // ─── Comparison charts — global (weekly vs monthly from dashboard) ─────────
+    // Comparison charts — global (weekly vs monthly from dashboard) 
     function drawComparisonCharts(data) {
         if (!data) return;
         const w = data.weekly  || {};
@@ -396,7 +397,7 @@
         );
     }
 
-    // ─── Comparison charts — per patient (split sessions into thirds) ──────────
+    // Comparison charts — per patient (split sessions into thirds) 
     function drawPatientComparison(sessions) {
         if (!sessions.length) return;
 
@@ -435,7 +436,7 @@
             labels, romVals, 'ROM (°)', v => v+'°', 120, bgColors, bdColors);
     }
 
-    // ─── Bar chart builder (create or update) ─────────────────────────────────
+    // Bar chart builder (create or update) 
     function buildBarChart(id, existing, labels, data, label, tickCb, maxY, bgColors, bdColors) {
         if (existing) {
             existing.data.labels = labels;
@@ -460,6 +461,7 @@
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
+                layout: { padding: { top: 12 } },
                 plugins: { legend:{display:false}, tooltip: tooltipStyle() },
                 scales: {
                     y: { beginAtZero:true, max: maxY,
@@ -471,7 +473,7 @@
         });
     }
 
-    // ─── Recommendations ──────────────────────────────────────────────────────
+    // Recommendations 
     function showGlobalRecommendations(data) {
         if (!data) return;
         const s    = data.statistics || {};
@@ -519,7 +521,7 @@
         }).join('');
     }
 
-    // ─── Report history table — show all patients summary ─────────────────────
+    // Report history table — show all patients summary 
     async function loadReportHistory() {
         const tbody = document.getElementById('reportHistoryBody');
         tbody.innerHTML = '<tr><td colspan="6" class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
@@ -558,7 +560,7 @@
         }
     }
 
-    // ─── Select patient from table ────────────────────────────────────────────
+    // Select patient from table
     async function selectPatient(pid) {
         const sel = document.getElementById('reportPatientSelect');
         sel.value = pid;
@@ -566,7 +568,7 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // ─── Generate PDF ─────────────────────────────────────────────────────────
+    // Generate PDF 
     function generateReport() {
         const pid  = document.getElementById('reportPatientSelect').value;
         const type = document.getElementById('reportTypeSelect').value;
@@ -609,7 +611,7 @@
         setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
 
-    // ─── Previously generated reports for the selected patient ────────────────
+    // Previously generated reports for the selected patient
     async function loadPatientReportHistory(pid) {
         const box = document.getElementById('patientReportHistory');
         if (!box) return;
@@ -658,7 +660,7 @@
         }
     }
 
-    // ─── Tooltip style ────────────────────────────────────────────────────────
+    // Tooltip style 
     function tooltipStyle() {
         return {
             backgroundColor:'rgba(255,255,255,0.95)',
@@ -668,7 +670,7 @@
         };
     }
 
-    // ─── Misc ─────────────────────────────────────────────────────────────────
+    // Misc 
     function handleLogout() {
         if (confirm('Are you sure you want to logout?')) window.location.href = '/';
     }
