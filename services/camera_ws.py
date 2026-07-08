@@ -10,6 +10,15 @@ from config import mp_drawing_styles as _mp_drawing_styles
 from config import POSE_CONNECTIONS as _POSE_CONNECTIONS
 from config import KEY_LANDMARKS as _KEY_LANDMARKS
 from config import get_angle as _get_angle
+from config import hands as _hands, HAND_CONNECTIONS as _HAND_CONNECTIONS
+from services import metrics as _metrics
+
+
+def _is_hand_exercise(exercise_type: str) -> bool:
+    """Same rule as the MJPEG pipeline — Hand Grip / Finger Flexion needs
+    MediaPipe Hands, everything else stays on Pose."""
+    ex = (exercise_type or "").lower()
+    return "grip" in ex or "finger" in ex
 
 
 class CameraManager:
@@ -64,7 +73,14 @@ class CameraManager:
         return False
 
     def process_frame(self, frame):
-        if frame is None or _pose is None:
+        if frame is None:
+            return frame, None
+
+        active_exercise, target_rom = _metrics.get_exercise_state()
+        if _is_hand_exercise(active_exercise):
+            return self._process_hand_frame(frame, active_exercise, target_rom)
+
+        if _pose is None:
             return frame, None
 
         # Convert BGR → RGB (MediaPipe needs RGB)
@@ -122,6 +138,49 @@ class CameraManager:
 
         pose_data["angles"] = angles
         return annotated, pose_data
+
+    def _process_hand_frame(self, frame, active_exercise: str, target_rom: float):
+        """Hand Grip / Finger Flexion path — MediaPipe Hands instead of Pose,
+        mirrors the MJPEG pipeline's hand branch so both delivery modes
+        (WebSocket relay + MJPEG <img>) behave identically."""
+        if _hands is None:
+            return frame, None
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb.flags.writeable = False
+        results = _hands.process(rgb)
+        rgb.flags.writeable = True
+
+        annotated = frame.copy()
+
+        if not results.multi_hand_landmarks:
+            return annotated, None
+
+        if self._draw_landmarks and _mp_drawing and _HAND_CONNECTIONS:
+            for hand_landmarks in results.multi_hand_landmarks:
+                _mp_drawing.draw_landmarks(annotated, hand_landmarks, _HAND_CONNECTIONS)
+
+        lm0 = results.multi_hand_landmarks[0].landmark
+        finger_angles = _metrics.compute_finger_curl_angles(lm0)
+        primary_angle = _metrics.compute_primary_angle(finger_angles, active_exercise)
+        reps = _metrics.update_rep_count(primary_angle, target_rom)
+
+        pose_data = {}
+        # Send finger points the same way body key-landmarks are sent, so
+        # any downstream JS drawing/consumption code can treat them uniformly.
+        for name, idx in _config_hand_landmarks().items():
+            lmk = lm0[idx]
+            pose_data[name] = {"x": round(lmk.x, 4), "y": round(lmk.y, 4), "z": round(lmk.z, 4)}
+
+        pose_data["angles"] = finger_angles
+        pose_data["reps"] = reps
+        pose_data["primary_angle"] = primary_angle
+        return annotated, pose_data
+
+
+def _config_hand_landmarks():
+    from config import HAND_LANDMARKS
+    return HAND_LANDMARKS
 
 
 class WSManager:

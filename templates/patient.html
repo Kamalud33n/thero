@@ -199,7 +199,7 @@
 </div>
 
 <script type="module">
-import { PoseLandmarker, FilesetResolver }
+import { PoseLandmarker, HandLandmarker, FilesetResolver }
     from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 const ROOM_ID = "{{ room_id }}";
@@ -209,6 +209,8 @@ let localStream      = null;
 let peerConn          = null;
 let signalWs           = null;
 let poseLandmarker     = null;
+let handLandmarker     = null;
+let lastHandLandmarks   = null;
 let rafId               = null;
 let usingVideoFrameCallback = false;   // requestVideoFrameCallback vs rAF fallback
 let micOn = true, camOn = true;
@@ -310,7 +312,58 @@ function computePrimaryAngle(angles, exerciseType) {
     if (ex.includes('elbow'))                          return avg(angles.left_elbow, angles.right_elbow);
     if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg') || ex.includes('ankle'))
         return avg(angles.left_knee, angles.right_knee);
+    if (ex.includes('grip') || ex.includes('finger'))
+        // Thumb excluded on purpose — see metrics.compute_grip_angle() on
+        // the backend, same reasoning applies here.
+        return avg(angles.index, angles.middle, angles.ring, angles.pinky);
     return avg(angles.left_elbow, angles.right_elbow, angles.left_knee, angles.right_knee);
+}
+
+// ─── Hand Grip / Finger Flexion — mirrors config.py's HAND_LANDMARKS and
+// metrics.py's compute_finger_curl_angles() exactly, so a remote session
+// produces the same finger-curl numbers as an in-clinic MediaPipe-Hands
+// session. Pose's landmarks stop at the wrist, so this exercise needs the
+// separate HandLandmarker model (see initHandLandmarker() below). ─────────
+function _isHandExercise(exerciseType) {
+    const ex = (exerciseType || '').toLowerCase();
+    return ex.includes('grip') || ex.includes('finger');
+}
+
+const HAND_LM_INDEX = {
+    wrist: 0,
+    thumb_cmc: 1, thumb_mcp: 2, thumb_ip: 3, thumb_tip: 4,
+    index_mcp: 5, index_pip: 6, index_dip: 7, index_tip: 8,
+    middle_mcp: 9, middle_pip: 10, middle_dip: 11, middle_tip: 12,
+    ring_mcp: 13, ring_pip: 14, ring_dip: 15, ring_tip: 16,
+    pinky_mcp: 17, pinky_pip: 18, pinky_dip: 19, pinky_tip: 20,
+};
+
+const FINGER_TRIPLETS = {
+    thumb:  ['thumb_cmc', 'thumb_mcp', 'thumb_ip'],
+    index:  ['index_mcp', 'index_pip', 'index_dip'],
+    middle: ['middle_mcp', 'middle_pip', 'middle_dip'],
+    ring:   ['ring_mcp', 'ring_pip', 'ring_dip'],
+    pinky:  ['pinky_mcp', 'pinky_pip', 'pinky_dip'],
+};
+
+// Same named-pair connection set used by session.html's drawRemoteSkeleton()
+// so both screens draw an identical hand skeleton.
+const HAND_CONNECTIONS_NAMED = [
+    ['wrist','thumb_cmc'],['thumb_cmc','thumb_mcp'],['thumb_mcp','thumb_ip'],['thumb_ip','thumb_tip'],
+    ['wrist','index_mcp'],['index_mcp','index_pip'],['index_pip','index_dip'],['index_dip','index_tip'],
+    ['wrist','middle_mcp'],['middle_mcp','middle_pip'],['middle_pip','middle_dip'],['middle_dip','middle_tip'],
+    ['wrist','ring_mcp'],['ring_mcp','ring_pip'],['ring_pip','ring_dip'],['ring_dip','ring_tip'],
+    ['wrist','pinky_mcp'],['pinky_mcp','pinky_pip'],['pinky_pip','pinky_dip'],['pinky_dip','pinky_tip'],
+    ['index_mcp','middle_mcp'],['middle_mcp','ring_mcp'],['ring_mcp','pinky_mcp'],
+];
+
+function computeFingerCurlAngles(lm) {
+    const angles = {};
+    for (const [name, [i1, i2, i3]] of Object.entries(FINGER_TRIPLETS)) {
+        const a = lm[HAND_LM_INDEX[i1]], b = lm[HAND_LM_INDEX[i2]], c = lm[HAND_LM_INDEX[i3]];
+        if (a && b && c) angles[name] = angleBetween(a, b, c);
+    }
+    return angles;
 }
 
 function updateRepCount(primaryAngle, targetRom) {
@@ -343,6 +396,25 @@ function updateStability(lm) {
         const ys = jitterBuffer.map(p => p[1]);
         const jitter = pstdev(xs) + pstdev(ys);
         stabilityScore = Math.round(Math.max(0, Math.min(100, 100 - jitter * 4000)) * 10) / 10;
+    }
+    return stabilityScore;
+}
+
+// Hand-exercise stability: hip landmarks don't exist on a hands-only frame,
+// so anchor jitter off the wrist point instead (index 0 in HAND_LM_INDEX).
+// Same pstdev-based jitter math as updateStability, just a different anchor
+// and a smaller multiplier since a hand's natural sway is a much smaller
+// fraction of the frame than a full-body hip sway.
+function updateHandStability(handLm) {
+    const wrist = handLm[HAND_LM_INDEX.wrist];
+    if (!wrist) return stabilityScore;
+    jitterBuffer.push([wrist.x, wrist.y]);
+    if (jitterBuffer.length > 20) jitterBuffer.shift();
+    if (jitterBuffer.length >= 5) {
+        const xs = jitterBuffer.map(p => p[0]);
+        const ys = jitterBuffer.map(p => p[1]);
+        const jitter = pstdev(xs) + pstdev(ys);
+        stabilityScore = Math.round(Math.max(0, Math.min(100, 100 - jitter * 6000)) * 10) / 10;
     }
     return stabilityScore;
 }
@@ -396,6 +468,7 @@ function resetExerciseMetrics() {
     velocityBuffer = []; lastPrimaryAngle = null; smoothnessScore = 100;
     swayBuffer = []; balanceScore = 100;
     repQualityBuffer = []; fatigueScore = 0; lastFatigueRepCount = 0;
+    lastLandmarks = null; lastHandLandmarks = null;
 }
 
 const localVideo    = document.getElementById('localVideo');
@@ -450,6 +523,7 @@ function getActiveConnections(exerciseType) {
           LW='left_wrist', RW='right_wrist', LH='left_hip', RH='right_hip',
           LK='left_knee', RK='right_knee', LA='left_ankle', RA='right_ankle';
 
+    if (ex.includes('grip') || ex.includes('finger')) return HAND_CONNECTIONS_NAMED;
     if (ex.includes('elbow'))  return [[LS,LE],[LE,LW],[RS,RE],[RE,RW]];
     if (ex.includes('hand'))   return [[LE,LW],[RE,RW]];
     if (ex.includes('ankle'))  return [[LK,LA],[RK,RA]];
@@ -484,12 +558,17 @@ function getCoverTransform() {
     return { offsetX: (cw - drawW) / 2, offsetY: (ch - drawH) / 2, drawW, drawH };
 }
 
-function drawFilteredSkeleton(lm, exerciseType) {
+function drawFilteredSkeleton(lm, exerciseType, isHand = false) {
     const t = getCoverTransform();
+    const idxMap = isHand ? HAND_LM_INDEX : LM_INDEX;
     const toPt = (name) => {
-        const idx = LM_INDEX[name];
+        const idx = idxMap[name];
         const p = lm[idx];
-        if (!p || (p.visibility != null && p.visibility < 0.5)) return null;
+        if (!p) return null;
+        // HandLandmarker doesn't produce a meaningful `visibility` value
+        // (it's filled as 0, not undefined) — that check is Pose-only,
+        // otherwise every hand point gets filtered out and nothing draws.
+        if (!isHand && p.visibility != null && p.visibility < 0.5) return null;
         return [t.offsetX + p.x * t.drawW, t.offsetY + p.y * t.drawH];
     };
 
@@ -607,7 +686,7 @@ window.joinSession = async function joinSession() {
     // ready, so calling it immediately here is race-free.
     startDetectionLoop();
 
-    await Promise.all([initPoseLandmarker(), initPeerConnection()]);
+    await Promise.all([initPoseLandmarker(), initHandLandmarker(), initPeerConnection()]);
     connectSignaling();
 };
 
@@ -654,6 +733,39 @@ async function initPoseLandmarker() {
     }
 }
 
+// ─── Hand Grip / Finger Flexion model — loaded in parallel with the Pose
+// model (both are small/fast at model_complexity 0-equivalent settings), so
+// switching the doctor's exercise selection mid-session between a body
+// exercise and a hand exercise doesn't need to wait on a network fetch.
+async function initHandLandmarker() {
+    const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    );
+    const modelPath =
+        "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
+
+    try {
+        handLandmarker = await HandLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: modelPath, delegate: "GPU" },
+            runningMode: "VIDEO",
+            numHands: 1,
+        });
+    } catch (e) {
+        console.warn('HandLandmarker: GPU delegate failed, falling back to CPU:', e);
+        try {
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: modelPath, delegate: "CPU" },
+                runningMode: "VIDEO",
+                numHands: 1,
+            });
+        } catch (e2) {
+            console.error('HandLandmarker: CPU fallback also failed:', e2);
+            // Non-fatal — only Hand Grip/Finger Flexion is affected; every
+            // other exercise still works fine on poseLandmarker alone.
+        }
+    }
+}
+
 // ─── Detection loop driver ────────────────────────────────────────────────
 // Previously this ran purely on requestAnimationFrame (rAF), which fires on
 // the DISPLAY's refresh cycle, not the camera's actual frame arrival. On a
@@ -689,7 +801,9 @@ function poseLoop() {
 }
 
 function runDetectionTick() {
-    if (!poseLandmarker || localVideo.readyState < 2) return;
+    const handMode = _isHandExercise(currentExerciseType);
+    const activeModel = handMode ? handLandmarker : poseLandmarker;
+    if (!activeModel || localVideo.readyState < 2) return;
 
     // Throttle to the current tier's target detection FPS. On a high-refresh
     // display or requestVideoFrameCallback firing on every camera frame,
@@ -706,7 +820,7 @@ function runDetectionTick() {
 
     const t0 = performance.now();
     detectCtx.drawImage(localVideo, 0, 0, detectCanvas.width, detectCanvas.height);
-    const result = poseLandmarker.detectForVideo(detectCanvas, performance.now());
+    const result = activeModel.detectForVideo(detectCanvas, performance.now());
     const elapsed = performance.now() - t0;
 
     // Rolling benchmark of actual model inference time — this is the real
@@ -726,10 +840,24 @@ function runDetectionTick() {
 
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
+    if (handMode) {
+        if (result.landmarks && result.landmarks.length > 0) {
+            document.getElementById('noPoseChip').classList.remove('show');
+            lastHandLandmarks = result.landmarks[0];
+            lastLandmarks = null;
+            drawFilteredSkeleton(lastHandLandmarks, currentExerciseType, true);
+        } else {
+            document.getElementById('noPoseChip').classList.add('show');
+            lastHandLandmarks = null;
+        }
+        return;
+    }
+
     if (result.landmarks && result.landmarks.length > 0) {
         document.getElementById('noPoseChip').classList.remove('show');
         const lm = result.landmarks[0];
         lastLandmarks = lm;
+        lastHandLandmarks = null;
 
         // Only draw the joints/lines relevant to the doctor-selected
         // exercise (matches the in-clinic session page), with coordinates
@@ -766,6 +894,50 @@ function startMetricsBroadcast() {
     // device's video/detect tier.
     metricsIntervalId = setInterval(() => {
         if (!signalWs || signalWs.readyState !== WebSocket.OPEN) return;
+
+        if (_isHandExercise(currentExerciseType)) {
+            if (!lastHandLandmarks) {
+                signalWs.send(JSON.stringify({
+                    type: 'pose_metrics', detected: false, angles: {}, points: {},
+                    exercise_type: currentExerciseType, ts: Date.now(),
+                }));
+                return;
+            }
+
+            const angles       = computeFingerCurlAngles(lastHandLandmarks);
+            const primaryAngle = computePrimaryAngle(angles, currentExerciseType);
+            const reps         = updateRepCount(primaryAngle, currentTargetRom);
+            // Balance stays at its last value — no shoulder landmarks on a
+            // hands-only frame and there isn't a sensible hand-only stand-in
+            // for shoulder sway. Stability now uses wrist jitter instead of
+            // hip jitter, so it actually moves instead of sitting at 100.
+            updateHandStability(lastHandLandmarks);
+            const smoothness   = updateSmoothness(primaryAngle);
+
+            if (reps > lastFatigueRepCount) {
+                recordRepQuality(primaryAngle, currentTargetRom);
+                lastFatigueRepCount = reps;
+            }
+
+            const points = {};
+            Object.keys(HAND_LM_INDEX).forEach((name) => {
+                const p = lastHandLandmarks[HAND_LM_INDEX[name]];
+                if (p) points[name] = [+p.x.toFixed(4), +p.y.toFixed(4)];
+            });
+
+            signalWs.send(JSON.stringify({
+                type: 'pose_metrics',
+                detected: true,
+                angles,
+                points,
+                exercise_type: currentExerciseType,
+                primary_angle: primaryAngle,
+                reps, stability: stabilityScore, smoothness, balance: balanceScore,
+                fatigue: fatigueScore,
+                ts: Date.now(),
+            }));
+            return;
+        }
 
         if (!lastLandmarks) {
             signalWs.send(JSON.stringify({ type: 'pose_metrics', detected: false, angles: {}, points: {}, ts: Date.now() }));

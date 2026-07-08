@@ -536,6 +536,7 @@
                                 <option value="Shoulder Rehab">Shoulder Rehab</option>
                                 <option value="Elbow Rehab">Elbow Rehab</option>
                                 <option value="Hand Rehab">Hand Rehab</option>
+                                <option value="Hand Grip Exercise">Hand Grip Exercise (Finger Flexion)</option>
                                 <option value="Hip Rehab">Hip Rehab</option>
                                 <option value="Knee Rehab">Knee Rehab</option>
                                 <option value="Leg Rehab">Leg Rehab</option>
@@ -616,6 +617,11 @@
                             <div class="angle-item" data-joint="elbow"><span class="angle-label">Right Elbow</span>   <span class="angle-value" id="rightElbowAngle">--°</span></div>
                             <div class="angle-item" data-joint="knee"><span class="angle-label">Left Knee</span>     <span class="angle-value" id="leftKneeAngle">--°</span></div>
                             <div class="angle-item" data-joint="knee"><span class="angle-label">Right Knee</span>    <span class="angle-value" id="rightKneeAngle">--°</span></div>
+                            <div class="angle-item" data-joint="finger"><span class="angle-label">Index Finger</span> <span class="angle-value" id="indexFingerAngle">--°</span></div>
+                            <div class="angle-item" data-joint="finger"><span class="angle-label">Middle Finger</span><span class="angle-value" id="middleFingerAngle">--°</span></div>
+                            <div class="angle-item" data-joint="finger"><span class="angle-label">Ring Finger</span>  <span class="angle-value" id="ringFingerAngle">--°</span></div>
+                            <div class="angle-item" data-joint="finger"><span class="angle-label">Pinky Finger</span> <span class="angle-value" id="pinkyFingerAngle">--°</span></div>
+                            <div class="angle-item" data-joint="finger"><span class="angle-label">Thumb</span>       <span class="angle-value" id="thumbFingerAngle">--°</span></div>
                         </div>
                     </div>
                 </div>
@@ -858,12 +864,25 @@ async function syncExerciseType() {
 // It is an EXACT copy of patient.html's getActiveConnections(), so the
 // doctor's page and the patient's page always agree on which joints are
 // "active" for a given exercise.
+// Hand Grip / Finger Flexion connection set — exact copy of patient.html's
+// HAND_CONNECTIONS_NAMED, so the doctor's drawRemoteSkeleton() draws the
+// same finger skeleton the patient sees on their own screen.
+const HAND_CONNECTIONS_NAMED = [
+    ['wrist','thumb_cmc'],['thumb_cmc','thumb_mcp'],['thumb_mcp','thumb_ip'],['thumb_ip','thumb_tip'],
+    ['wrist','index_mcp'],['index_mcp','index_pip'],['index_pip','index_dip'],['index_dip','index_tip'],
+    ['wrist','middle_mcp'],['middle_mcp','middle_pip'],['middle_pip','middle_dip'],['middle_dip','middle_tip'],
+    ['wrist','ring_mcp'],['ring_mcp','ring_pip'],['ring_pip','ring_dip'],['ring_dip','ring_tip'],
+    ['wrist','pinky_mcp'],['pinky_mcp','pinky_pip'],['pinky_pip','pinky_dip'],['pinky_dip','pinky_tip'],
+    ['index_mcp','middle_mcp'],['middle_mcp','ring_mcp'],['ring_mcp','pinky_mcp'],
+];
+
 function getActiveConnections(exerciseType) {
     const ex = (exerciseType || '').toLowerCase();
     const LS='left_shoulder', RS='right_shoulder', LE='left_elbow', RE='right_elbow',
           LW='left_wrist', RW='right_wrist', LH='left_hip', RH='right_hip',
           LK='left_knee', RK='right_knee', LA='left_ankle', RA='right_ankle';
 
+    if (ex.includes('grip') || ex.includes('finger')) return HAND_CONNECTIONS_NAMED;
     if (ex.includes('elbow'))  return [[LS,LE],[LE,LW],[RS,RE],[RE,RW]];
     if (ex.includes('hand'))   return [[LE,LW],[RE,RW]];
     if (ex.includes('ankle'))  return [[LK,LA],[RK,RA]];
@@ -887,7 +906,8 @@ function getActiveConnections(exerciseType) {
 function getActiveJointGroup() {
     const ex = (document.getElementById('exerciseType')?.value || '').toLowerCase();
     if (ex.includes('balance'))                                  return 'all';
-    if (ex.includes('hand'))                                     return 'elbow'; // no dedicated hand badge — closest group
+    if (ex.includes('grip') || ex.includes('finger'))            return 'finger'; // Hand Grip Exercise — MediaPipe Hands, dedicated group
+    if (ex.includes('hand'))                                     return 'elbow'; // old pose-only Hand Rehab — no dedicated hand badge, closest group
     if (ex.includes('ankle'))                                    return 'knee';  // no dedicated ankle badge — closest group
     if (ex.includes('hip'))                                      return 'all';   // spans shoulder+knee area — show all rather than mis-dim
     if (ex.includes('shoulder') || ex.includes('arm'))           return 'shoulder';
@@ -1013,6 +1033,16 @@ function handlePoseData(data) {
         set('rightKneeAngle',    ang.r_knee);
         updateBadge('badge_l_knee',    'L.Knee',    ang.l_knee,  targetRom);
         updateBadge('badge_r_knee',    'R.Knee',    ang.r_knee,  targetRom);
+    }
+    if (active === 'all' || active === 'finger') {
+        // ang.index/middle/ring/pinky/thumb come from MediaPipe Hands
+        // finger-curl calculation (see metrics.compute_finger_curl_angles) —
+        // ~170-180° = extended, ~40-70° = curled into a fist.
+        set('indexFingerAngle',  ang.index);
+        set('middleFingerAngle', ang.middle);
+        set('ringFingerAngle',   ang.ring);
+        set('pinkyFingerAngle',  ang.pinky);
+        set('thumbFingerAngle',  ang.thumb);
     }
 
     // Reps, stability, smoothness, balance, fatigue now ALL come straight
@@ -1754,6 +1784,11 @@ async function connectDoctorSignaling() {
                     l_shoulder: a.left_shoulder,  r_shoulder: a.right_shoulder,
                     l_elbow:    a.left_elbow,     r_elbow:    a.right_elbow,
                     l_knee:     a.left_knee,      r_knee:     a.right_knee,
+                    // Hand Grip / Finger Flexion — patient already sends
+                    // these under the same short keys handlePoseData()
+                    // expects, so no remap needed here.
+                    thumb: a.thumb, index: a.index, middle: a.middle,
+                    ring:  a.ring,  pinky: a.pinky,
                 };
                 handlePoseData({
                     detected:      msg.detected !== false && Object.keys(a).length > 0,

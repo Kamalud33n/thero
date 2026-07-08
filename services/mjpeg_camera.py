@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from config import pose, mp_drawing, KEY_LANDMARKS, get_angle
+from config import hands as _hands, HAND_CONNECTIONS as _HAND_CONNECTIONS
 from services import metrics
 
 # Bright, high-visibility drawing specs (default MediaPipe style is dim on a
@@ -57,6 +58,28 @@ latest_pose_data: Dict[str, Any] = {
     "reps": 0, "stability": 100.0, "primary_angle": None,
     "smoothness": 100.0, "balance": 100.0, "fatigue": 0.0,
 }
+
+
+def _is_hand_exercise(exercise_type: str) -> bool:
+    """Hand Grip / Finger Flexion needs MediaPipe Hands (21 finger
+    landmarks) instead of — or alongside — Pose, since Pose's landmarks
+    stop at the wrist. Kept separate from the old 'Hand Rehab' pose-only
+    elbow↔wrist exercise, which stays on the regular Pose path."""
+    ex = (exercise_type or "").lower()
+    return "grip" in ex or "finger" in ex
+
+
+def _draw_hand_skeleton(frame, hand_landmarks_list):
+    """Draw all detected hands using MediaPipe's own connections — simpler
+    than the filtered body-skeleton drawing since we want the full hand."""
+    if mp_drawing is None or _HAND_CONNECTIONS is None:
+        return
+    for hand_landmarks in hand_landmarks_list:
+        mp_drawing.draw_landmarks(
+            frame, hand_landmarks, _HAND_CONNECTIONS,
+            landmark_drawing_spec=_MJPEG_LANDMARK_SPEC,
+            connection_drawing_spec=_MJPEG_CONNECTION_SPEC,
+        )
 
 
 def _get_active_connections(exercise_type: str):
@@ -284,6 +307,67 @@ def gen_frames():
 
             frame = cv2.flip(frame, 1)  # mirror, like the reference app
 
+            active_exercise, target_rom = metrics.get_exercise_state()
+            hand_mode = _is_hand_exercise(active_exercise)
+
+            angles: Dict[str, float] = {}
+            primary_angle: Optional[float] = None
+            reps = 0
+            stability  = metrics.get_stability()
+            smoothness = metrics.get_smoothness()
+            balance    = metrics.get_balance()
+            fatigue    = metrics.get_current_fatigue()
+
+            if hand_mode:
+                # ── Hand Grip / Finger Flexion path: MediaPipe Hands ──────
+                hand_results = None
+                try:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    rgb.flags.writeable = False
+                    if _hands is not None:
+                        hand_results = _hands.process(rgb)
+                    rgb.flags.writeable = True
+                except Exception as e:
+                    print(f"MJPEG: MediaPipe Hands processing failed: {e}")
+                    hand_results = None
+
+                hand_found = bool(hand_results and hand_results.multi_hand_landmarks)
+                detected = hand_found
+
+                if hand_found:
+                    _draw_hand_skeleton(frame, hand_results.multi_hand_landmarks)
+                    # Use the first detected hand for angles/reps (single-hand
+                    # exercise — a second hand in frame is just ignored).
+                    lm0 = hand_results.multi_hand_landmarks[0].landmark
+                    angles = metrics.compute_finger_curl_angles(lm0)
+
+                    primary_angle = metrics.compute_primary_angle(angles, active_exercise)
+                    reps       = metrics.update_rep_count(primary_angle, target_rom)
+                    # Stability/smoothness/balance are body-pose-derived (hip
+                    # jitter, shoulder sway) and don't apply to a hands-only
+                    # frame, so they stay at whatever they last were —
+                    # smoothness alone still makes sense off finger-angle jerk.
+                    smoothness = metrics.update_smoothness(primary_angle)
+                    fatigue    = metrics.maybe_record_rep_quality(reps, primary_angle, target_rom)
+
+                latest_pose_data["detected"]      = detected
+                latest_pose_data["angles"]        = angles
+                latest_pose_data["ts"]            = datetime.datetime.now().isoformat()
+                latest_pose_data["reps"]          = reps
+                latest_pose_data["stability"]     = stability
+                latest_pose_data["smoothness"]    = smoothness
+                latest_pose_data["balance"]       = balance
+                latest_pose_data["fatigue"]       = fatigue
+                latest_pose_data["primary_angle"] = primary_angle
+
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                if not ok:
+                    print("MJPEG: JPEG encode failed, skipping this frame")
+                    continue
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+                continue
+
+            # ── Regular body-pose path (all other exercise types) ─────────
             results = None
             try:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -296,7 +380,6 @@ def gen_frames():
                 results = None
 
             person_found = bool(results and results.pose_landmarks)
-            active_exercise, target_rom = metrics.get_exercise_state()
 
             # "detected" now means "the joints THIS exercise needs are
             # visible" rather than "MediaPipe found some person somewhere
@@ -305,13 +388,6 @@ def gen_frames():
             detected = person_found and _relevant_landmarks_visible(
                 results.pose_landmarks.landmark, active_exercise
             )
-            angles: Dict[str, float] = {}
-            primary_angle: Optional[float] = None
-            reps = 0
-            stability  = metrics.get_stability()
-            smoothness = metrics.get_smoothness()
-            balance    = metrics.get_balance()
-            fatigue    = metrics.get_current_fatigue()
 
             if person_found and mp_drawing is not None:
                 # Skeleton is still drawn whenever MediaPipe found a person

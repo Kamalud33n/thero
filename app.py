@@ -18,7 +18,7 @@ from routers import pages, patients, sessions, dashboard, analytics, reports, ca
 
 init_db()  # creates all tables (and the MySQL database itself, if missing)
 
-# ─── FastAPI app ──────────────────────────────────────────────────────────────
+# ─── FastAPI app 
 app = FastAPI(title="Rehabilitation AI System", version="2.2.0")
 
 app.add_middleware(
@@ -44,7 +44,7 @@ app.include_router(camera.router)
 app.include_router(ws.router)
 
 
-# ─── Startup seed ─────────────────────────────────────────────────────────────
+#Startup seed
 # Off by default — set SEED_DEMO_DATA=true in the environment if you ever want
 # the 3 sample patients + random demo sessions back (e.g. for a fresh demo).
 @app.on_event("startup")
@@ -120,7 +120,7 @@ async def seed():
         print("Seed data inserted.")
 
 
-# ─── Health check ─────────────────────────────────────────────────────────────
+# Health check
 @app.get("/api/health")
 async def health():
     return {
@@ -135,7 +135,7 @@ async def health():
     }
 
 
-# ─── Entry point ──────────────────────────────────────────────────────────────
+# Entry point 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)

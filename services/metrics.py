@@ -107,8 +107,45 @@ def compute_primary_angle(angles: Dict[str, float], exercise_type: str) -> Optio
         return avg(angles.get("l_knee"), angles.get("r_knee"))
     if "hip" in ex:
         return avg(angles.get("l_hip"), angles.get("r_hip"))
+    if "grip" in ex or "finger" in ex:
+        # Thumb excluded on purpose — see compute_grip_angle() docstring.
+        return avg(angles.get("index"), angles.get("middle"),
+                    angles.get("ring"), angles.get("pinky"))
     return avg(angles.get("l_elbow"), angles.get("r_elbow"),
                angles.get("l_knee"), angles.get("r_knee"))
+
+
+def compute_finger_curl_angles(hand_landmarks) -> Dict[str, float]:
+    """Real per-finger curl angle from MediaPipe Hands landmarks (21 pts).
+    ~170-180° = finger fully extended (open hand), ~40-70° = fully curled
+    (closed fist). Thumb uses CMC-MCP-IP since its joint layout differs
+    from the other four fingers."""
+    from config import get_angle, HAND_LANDMARKS as HL
+
+    def pt(name):
+        return hand_landmarks[HL[name]]
+
+    angles: Dict[str, float] = {}
+    try:
+        angles["thumb"]  = round(get_angle(pt("thumb_cmc"),  pt("thumb_mcp"),  pt("thumb_ip")), 1)
+        angles["index"]  = round(get_angle(pt("index_mcp"),  pt("index_pip"),  pt("index_dip")), 1)
+        angles["middle"] = round(get_angle(pt("middle_mcp"), pt("middle_pip"), pt("middle_dip")), 1)
+        angles["ring"]   = round(get_angle(pt("ring_mcp"),   pt("ring_pip"),   pt("ring_dip")), 1)
+        angles["pinky"]  = round(get_angle(pt("pinky_mcp"),  pt("pinky_pip"),  pt("pinky_dip")), 1)
+    except Exception as e:
+        print(f"finger curl angle calculation failed: {e}")
+    return angles
+
+
+def compute_grip_angle(finger_angles: Dict[str, float]) -> Optional[float]:
+    """Average curl across the 4 main fingers (thumb excluded — its range
+    of motion/joint geometry differs enough that mixing it in would skew
+    the open/close signal used for rep counting). This is the primary_angle
+    fed into update_rep_count() for Hand Grip / Finger Flexion exercises,
+    same as an elbow/knee angle is for other exercise types."""
+    vals = [finger_angles.get(f) for f in ("index", "middle", "ring", "pinky")]
+    vals = [v for v in vals if v is not None]
+    return sum(vals) / len(vals) if vals else None
 
 
 def update_rep_count(primary_angle: Optional[float], target_rom: float) -> int:

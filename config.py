@@ -53,6 +53,35 @@ except Exception as exc:
     print(f"MediaPipe init failed: {exc}")
     pose = mp_drawing = mp_drawing_styles = POSE_CONNECTIONS = None
 
+# MediaPipe Hands init — separate model, needed for finger/grip tracking.
+# Pose's 33 landmarks stop at the wrist, so a real finger-curl / hand-grip
+# exercise needs this second model running alongside Pose.
+try:
+    _mp_hands = mp.solutions.hands
+    hands = _mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=2,
+        model_complexity=0,           # ← 0 = fastest, matches Pose setting
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    HAND_CONNECTIONS = _mp_hands.HAND_CONNECTIONS
+    print("MediaPipe Hands initialized (optimized: complexity=0)")
+except Exception as exc:
+    print(f"MediaPipe Hands init failed: {exc}")
+    hands = HAND_CONNECTIONS = None
+
+# Hand landmark indices (21 points per hand) — MCP/PIP/DIP/TIP per finger,
+# used for finger-curl angle calculation.
+HAND_LANDMARKS = {
+    "wrist": 0,
+    "thumb_cmc": 1, "thumb_mcp": 2, "thumb_ip": 3, "thumb_tip": 4,
+    "index_mcp": 5, "index_pip": 6, "index_dip": 7, "index_tip": 8,
+    "middle_mcp": 9, "middle_pip": 10, "middle_dip": 11, "middle_tip": 12,
+    "ring_mcp": 13, "ring_pip": 14, "ring_dip": 15, "ring_tip": 16,
+    "pinky_mcp": 17, "pinky_pip": 18, "pinky_dip": 19, "pinky_tip": 20,
+}
+
 # Key landmarks only (13 joints instead of 33) 
 # Indices: nose=0, shoulders=11/12, elbows=13/14, wrists=15/16,
 #          hips=23/24, knees=25/26, ankles=27/28
