@@ -17,7 +17,7 @@ import mediapipe as mp
 from reportlab.lib import colors
 from fastapi.templating import Jinja2Templates
 
-# ─── PDF report design tokens (2-color system: navy + grey, white bg) ────────
+# PDF report design tokens (2-color system: navy + grey, white bg) 
 PDF_NAVY        = colors.HexColor("#1B2A4A")   # headings / emphasis
 PDF_GREY_BORDER = colors.HexColor("#B7BEC9")   # borders / rules
 PDF_GREY_BG     = colors.HexColor("#EEF1F5")   # section header band
@@ -25,17 +25,17 @@ PDF_GREY_TEXT   = colors.HexColor("#5A6472")   # secondary/meta text
 PDF_ROW_ALT     = colors.HexColor("#F7F8FA")   # alternating table row
 PDF_BODY_TEXT   = colors.HexColor("#2B2B2B")   # body copy
 
-# ─── Directories ──────────────────────────────────────────────────────────────
+# Directories 
 for d in ("data", "reports", "uploads", "static", "templates", "assets"):
     os.makedirs(d, exist_ok=True)
 
-# ─── Shared Jinja2 templates instance (import this everywhere instead of
+# Shared Jinja2 templates instance (import this everywhere instead of
 # creating a new Jinja2Templates(...) so the `tojson` filter is available
-# in every router that renders HTML) ──────────────────────────────────────────
+# in every router that renders HTML) 
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["tojson"] = lambda obj: _json.dumps(obj)
 
-# ─── MediaPipe init (optimized) ───────────────────────────────────────────────
+# MediaPipe init (optimized) 
 try:
     _mp_pose = mp.solutions.pose
     pose = _mp_pose.Pose(
@@ -53,7 +53,7 @@ except Exception as exc:
     print(f"MediaPipe init failed: {exc}")
     pose = mp_drawing = mp_drawing_styles = POSE_CONNECTIONS = None
 
-# ─── Key landmarks only (13 joints instead of 33) ────────────────────────────
+# Key landmarks only (13 joints instead of 33) 
 # Indices: nose=0, shoulders=11/12, elbows=13/14, wrists=15/16,
 #          hips=23/24, knees=25/26, ankles=27/28
 KEY_LANDMARKS = {

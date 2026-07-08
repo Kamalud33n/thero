@@ -1,12 +1,5 @@
 """
-Real (non-random) per-frame rehab metrics used by the MJPEG pipeline:
-- rep counting (hysteresis on the primary joint angle)
-- stability (hip-center landmark jitter)
-- smoothness (frame-to-frame angular jerk variance)
-- balance (shoulder-midpoint lateral sway)
-- fatigue (rep-quality decline across the session)
-
-Also owns the shared "which exercise / target ROM is currently active" state
+Real (non-random) per-frame rehab metrics used by the MJPEG pipeline: state
 that both the camera router (/api/exercise_type) and the MJPEG generator read.
 """
 import threading
@@ -14,22 +7,22 @@ import collections
 import statistics
 from typing import Dict, Optional
 
-# ─── Active exercise / target ROM state ──────────────────────────────────────
+# Active exercise / target ROM state 
 _exercise_lock = threading.Lock()
 _current_exercise_type = "Shoulder Rehab"
 _current_target_rom = 90.0
 
-# ─── Rep counting ─────────────────────────────────────────────────────────────
+# Rep counting 
 _rep_lock = threading.Lock()
 _rep_count = 0
 _rep_stage: Optional[str] = None      # "up" / "down"
 
-# ─── Stability — hip-center landmark jitter over a rolling window ───────────
+# Stability — hip-center landmark jitter over a rolling window 
 _stability_lock = threading.Lock()
 _landmark_jitter_buffer: "collections.deque" = collections.deque(maxlen=20)
 _current_stability_score = 100.0
 
-# ─── Smoothness — frame-to-frame angular jerk variance ───────────────────────
+# Smoothness — frame-to-frame angular jerk variance 
 # Jerky/shaky movement produces large, erratic frame-to-frame angle deltas;
 # a controlled rep produces small, consistent deltas. Low delta-variance =
 # high smoothness.
@@ -38,7 +31,7 @@ _angle_velocity_buffer: "collections.deque" = collections.deque(maxlen=15)
 _last_primary_angle: Optional[float] = None
 _current_smoothness_score = 100.0
 
-# ─── Balance — shoulder-midpoint lateral sway ────────────────────────────────
+# Balance — shoulder-midpoint lateral sway
 # Distinct signal from hip-based stability above: tracks horizontal drift of
 # the shoulder midpoint, which picks up upper-body swaying/compensation that
 # hip jitter alone wouldn't catch.
@@ -46,7 +39,7 @@ _balance_lock = threading.Lock()
 _shoulder_sway_buffer: "collections.deque" = collections.deque(maxlen=20)
 _current_balance_score = 100.0
 
-# ─── Fatigue — rep-quality decline over the session ──────────────────────────
+# Fatigue — rep-quality decline over the session 
 # Each completed rep's peak angle (as % of target ROM) is logged. Fatigue is
 # derived from how much rep quality has dropped in the second half of the
 # session vs. the first half — a real physiological proxy (form degrades as
@@ -57,7 +50,7 @@ _current_fatigue_score = 0.0
 _last_fatigue_rep_count = 0
 
 
-# ─── Exercise state getters/setters ───────────────────────────────────────────
+# Exercise state getters/setters 
 def set_exercise_state(exercise_type: Optional[str] = None, target_rom: Optional[float] = None):
     global _current_exercise_type, _current_target_rom
     if exercise_type:
@@ -77,7 +70,7 @@ def get_exercise_state():
         return _current_exercise_type, _current_target_rom
 
 
-# ─── Score getters (thread-safe reads) ────────────────────────────────────────
+# Score getters (thread-safe reads) 
 def get_stability() -> float:
     with _stability_lock:
         return _current_stability_score

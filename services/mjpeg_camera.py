@@ -40,7 +40,7 @@ _LH, _RH = "left_hip", "right_hip"
 _LK, _RK = "left_knee", "right_knee"
 _LA, _RA = "left_ankle", "right_ankle"
 
-# ─── Camera device state ──────────────────────────────────────────────────────
+# Camera device state 
 _mjpeg_cap: Optional[cv2.VideoCapture] = None
 _mjpeg_active = False
 _mjpeg_lock = threading.Lock()

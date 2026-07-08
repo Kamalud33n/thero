@@ -1,9 +1,3 @@
-"""
-Small stateless helper functions shared across routers:
-- compress_photo: downscale/compress uploaded patient photos before DB storage
-- calculate_recovery_score / calculate_improvement: session-list -> score math
-- session_summary: SessionModel -> plain dict (used by patients + analytics routers)
-"""
 import cv2
 import numpy as np
 
@@ -11,12 +5,6 @@ from models import SessionModel
 
 
 def compress_photo(raw_bytes: bytes, max_dim: int = 800, quality: int = 80) -> bytes:
-    """
-    Downscale + JPEG-compress an uploaded patient photo before storing it.
-    Raw camera/canvas captures can be several MB (e.g. 3200x4800 PNG); this
-    keeps DB rows small and avoids MySQL column-size issues. Falls back to
-    the original bytes if decoding fails (e.g. unsupported format).
-    """
     try:
         arr = np.frombuffer(raw_bytes, dtype=np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)

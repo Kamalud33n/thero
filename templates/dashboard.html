@@ -416,6 +416,21 @@
             renderStats(_dashData.statistics);
             renderTimeline(_dashData.progress);
             initCharts(_dashData);
+
+            // initCharts() above draws the accuracy/ROM charts from the FULL
+            // progress history. But the "Week" toggle is marked `active` in
+            // the HTML by default — so the very first thing the user sees
+            // never actually matched the "Week" label, and toggling
+            // Week/Month afterward could look like it does nothing (e.g. if
+            // all real session data so far already falls inside a week, both
+            // filters return the same rows). Re-apply the currently-active
+            // period right after building the charts so the initial view and
+            // the highlighted button always agree, and every later click has
+            // a real, visible baseline to change from.
+            ['accuracy', 'rom'].forEach(group => {
+                const activeBtn = document.querySelector(`.chart-btn.active[data-chart="${group}"]`);
+                if (activeBtn) refreshChartByPeriod(group, activeBtn.dataset.period);
+            });
         } catch(e) {
             console.error('loadDashboard:', e);
             document.getElementById('dashboardStats').innerHTML =
@@ -556,12 +571,22 @@
         const cutoff = period === 'week' ? 7 : 30;
         const now    = new Date();
 
+        const allDates = (_dashData.progress || []).map(r => r.date);
         const filtered = (_dashData.progress || [])
             .filter(r => (now - new Date(r.date)) / 86400000 <= cutoff)
             .sort((a,b) => new Date(a.date) - new Date(b.date));
 
+        // TEMP DEBUG — remove once confirmed. Shows exactly why the chart
+        // may look unchanged: if filtered.length === allDates.length for
+        // BOTH week and month, every session you have is already inside a
+        // week, so there's nothing for the "Month" filter to add/remove.
+        console.log(`[chart-toggle] ${chartName}/${period}: cutoff=${cutoff}d, total sessions=${allDates.length}, matching=${filtered.length}, all dates=`, allDates);
+
         const chart = _charts[chartName];
-        if (!chart) return;
+        if (!chart || !chart.data?.datasets?.[0]) {
+            console.warn('refreshChartByPeriod: chart not ready for', chartName);
+            return;
+        }
 
         chart.data.labels = filtered.map(r => r.date.slice(5));
         chart.data.datasets[0].data = filtered.map(r => chartName === 'accuracy' ? r.accuracy : r.rom);

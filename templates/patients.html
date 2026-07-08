@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/style.css?v=2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
 </head>
 <body>
     <!-- Loading Overlay -->
@@ -202,9 +203,31 @@
         </div>
     </div>
 
+    <!-- Photo Crop Modal -->
+    <div class="modal" id="cropModal">
+        <div class="modal-content glass-effect crop-modal-content">
+            <div class="modal-header">
+                <h3>Adjust Photo</h3>
+                <button class="modal-close" onclick="cancelCrop()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="crop-container">
+                <img id="cropImage" src="" alt="Crop preview">
+            </div>
+            <div class="crop-zoom-row">
+                <i class="fas fa-magnifying-glass-minus"></i>
+                <input type="range" id="cropZoomSlider" min="0" max="100" value="0" oninput="onZoomSliderChange(this.value)">
+                <i class="fas fa-magnifying-glass-plus"></i>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" onclick="cancelCrop()">Cancel</button>
+                <button type="button" class="btn-primary" onclick="applyCrop()"><i class="fas fa-check"></i> Use Photo</button>
+            </div>
+        </div>
+    </div>
+
     <!-- View Patient Modal -->
     <div class="modal" id="viewModal">
-        <div class="modal-content glass-effect">
+        <div class="modal-content glass-effect profile-modal-content">
             <div class="modal-header">
                 <h3>Patient Profile</h3>
                 <button class="modal-close" onclick="closeViewModal()"><i class="fas fa-times"></i></button>
@@ -222,6 +245,7 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <script>
     // State
     let allPatients   = [];
@@ -351,6 +375,18 @@
         return d.innerHTML;
     }
 
+    // Some backends serialize datetimes as "YYYY-MM-DD HH:MM:SS" (space instead
+    // of "T"), which several browsers refuse to parse and report as an
+    // "Invalid Date". Normalize before handing it to Date().
+    function parseServerDate(value) {
+        if (!value) return null;
+        const normalized = (typeof value === 'string' && !value.includes('T'))
+            ? value.replace(' ', 'T')
+            : value;
+        const d = new Date(normalized);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
     // Add / Edit modal
     function openAddModal() {
         document.getElementById('patientModalTitle').textContent = 'Add Patient';
@@ -400,21 +436,87 @@
         document.getElementById('patientModal').classList.remove('active');
     }
 
+    // Holds the cropped image blob that actually gets uploaded. Kept separate
+    // from the raw <input type=file> since the user can drag/zoom to adjust
+    // the crop before it's finalized.
+    let processedPhotoBlob = null;
+    let cropper = null;
+    let cropObjectUrl = null;
+    let cropSliderLastValue = 0;
+
     function previewPhoto(evt) {
         const file = evt.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            document.getElementById('photoPreviewIcon').style.display = 'none';
-            const img = document.getElementById('photoPreviewImg');
-            img.src = reader.result;
-            img.style.display = 'block';
+
+        if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+        cropObjectUrl = URL.createObjectURL(file);
+
+        const cropImage = document.getElementById('cropImage');
+        cropImage.src = cropObjectUrl;
+        document.getElementById('cropModal').classList.add('active');
+
+        cropImage.onload = () => {
+            if (cropper) cropper.destroy();
+            cropSliderLastValue = 0;
+            document.getElementById('cropZoomSlider').value = 0;
+            cropper = new Cropper(cropImage, {
+                aspectRatio: 1,
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                cropBoxResizable: false,
+                cropBoxMovable: false,
+                background: false,
+                zoomOnWheel: true,
+                guides: false,
+            });
         };
-        reader.readAsDataURL(file);
+    }
+
+    function onZoomSliderChange(value) {
+        if (!cropper) return;
+        const delta = (value - cropSliderLastValue) * 0.02;
+        cropper.zoom(delta);
+        cropSliderLastValue = value;
+    }
+
+    function cancelCrop() {
+        if (cropper) { cropper.destroy(); cropper = null; }
+        document.getElementById('cropModal').classList.remove('active');
+        // Allow reselecting the same file again if the user cancels
+        document.getElementById('photoInput').value = '';
+        if (cropObjectUrl) { URL.revokeObjectURL(cropObjectUrl); cropObjectUrl = null; }
+    }
+
+    function applyCrop() {
+        if (!cropper) return;
+        const canvas = cropper.getCroppedCanvas({
+            width: 400,
+            height: 400,
+            imageSmoothingQuality: 'high',
+        });
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                showToast('Could not process that image', 'error');
+                return;
+            }
+            processedPhotoBlob = blob;
+            const url = URL.createObjectURL(blob);
+            document.getElementById('photoPreviewIcon').style.display = 'none';
+            const previewImg = document.getElementById('photoPreviewImg');
+            previewImg.src = url;
+            previewImg.style.display = 'block';
+
+            cropper.destroy();
+            cropper = null;
+            document.getElementById('cropModal').classList.remove('active');
+            if (cropObjectUrl) { URL.revokeObjectURL(cropObjectUrl); cropObjectUrl = null; }
+        }, 'image/jpeg', 0.9);
     }
 
     function resetPhotoPreview() {
         document.getElementById('photoInput').value = '';
+        processedPhotoBlob = null;
         document.getElementById('photoPreviewIcon').style.display = 'block';
         const img = document.getElementById('photoPreviewImg');
         img.style.display = 'none';
@@ -444,8 +546,15 @@
         fd.append('exercise_plan', document.getElementById('f_exercise_plan').value);
         if (id) fd.append('is_active', 'true');
 
-        const photoFile = document.getElementById('photoInput').files[0];
-        if (photoFile) fd.append('photo', photoFile);
+        // Prefer the auto center-cropped + resized version so the avatar always
+        // fits the round frame consistently, regardless of the original photo's
+        // dimensions. Fall back to the raw file only if processing didn't run.
+        if (processedPhotoBlob) {
+            fd.append('photo', processedPhotoBlob, 'photo.jpg');
+        } else {
+            const photoFile = document.getElementById('photoInput').files[0];
+            if (photoFile) fd.append('photo', photoFile);
+        }
 
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
@@ -484,18 +593,32 @@
 
             const sessions = p.sessions || [];
             const sessionsHtml = sessions.length
-                ? sessions.slice(0, 5).map(s => `
-                    <div class="activity-item">
-                        <div class="activity-details">
-                            <div class="activity-title">${escapeHtml(s.exercise_type)}</div>
-                            <div class="activity-meta">
-                                <span>${new Date(s.start_time).toLocaleDateString()}</span>
-                                <span>•</span>
-                                <span>Accuracy: ${(s.accuracy_percentage ?? 0).toFixed(1)}%</span>
-                            </div>
-                        </div>
-                    </div>`).join('')
+                ? sessions.slice(0, 5).map(s => {
+                    const d = parseServerDate(s.start_time);
+                    const dateLabel = d ? d.toLocaleDateString() : '—';
+                    return `
+                    <div class="session-item">
+                        <span class="session-exercise">${escapeHtml(s.exercise_type)}</span>
+                        <span class="session-date">${dateLabel}</span>
+                        <span class="session-accuracy">${Number(s.accuracy_percentage ?? 0).toFixed(1)}%</span>
+                    </div>`;
+                }).join('')
                 : `<div class="empty-sub" style="padding:12px 0;">No sessions yet</div>`;
+
+            // Build the detail rows, skipping any field the patient doesn't have
+            const detailRow = (label, value) => value
+                ? `<div class="detail-row"><div class="detail-label">${label}</div><div class="detail-value">${escapeHtml(String(value))}</div></div>`
+                : '';
+
+            const detailsHtml = [
+                detailRow('Weight', p.weight ? `${p.weight} kg` : ''),
+                detailRow('Height', p.height ? `${p.height} cm` : ''),
+                detailRow('Diagnosis', p.diagnosis),
+                detailRow('Medical History', p.medical_history),
+                detailRow('Previous Injury', p.previous_injury),
+                detailRow('Current Treatment', p.current_treatment),
+                detailRow('Exercise Plan', p.exercise_plan),
+            ].join('');
 
             document.getElementById('viewModalBody').innerHTML = `
                 <div class="profile-header">
@@ -503,17 +626,18 @@
                     <div class="profile-info">
                         <h4>${escapeHtml(p.name)}</h4>
                         <p>${p.age} yrs • ${escapeHtml(p.gender)} ${p.affected_body_part ? '• ' + escapeHtml(p.affected_body_part) : ''}</p>
+                        <span class="status-badge ${p.is_active ? 'active' : 'inactive'}">${p.is_active ? 'Active' : 'Inactive'}</span>
                     </div>
                 </div>
-                <div class="patient-meta" style="font-size:14px;">
+                <div class="patient-meta profile-contact-meta">
                     ${p.phone ? `<span><i class="fas fa-phone"></i> ${escapeHtml(p.phone)}</span>` : ''}
                     ${p.email ? `<span><i class="fas fa-envelope"></i> ${escapeHtml(p.email)}</span>` : ''}
                     ${p.doctor_name ? `<span><i class="fas fa-user-md"></i> Dr. ${escapeHtml(p.doctor_name)}</span>` : ''}
+                    ${p.therapist_name ? `<span><i class="fas fa-hands-holding-child"></i> ${escapeHtml(p.therapist_name)}</span>` : ''}
                 </div>
-                ${p.diagnosis ? `<div><strong>Diagnosis:</strong> ${escapeHtml(p.diagnosis)}</div>` : ''}
-                ${p.exercise_plan ? `<div><strong>Exercise Plan:</strong> ${escapeHtml(p.exercise_plan)}</div>` : ''}
-                <div>
-                    <h4 style="margin-bottom:8px;">Recent Sessions</h4>
+                ${detailsHtml ? `<div class="profile-details">${detailsHtml}</div>` : ''}
+                <div class="recent-sessions">
+                    <h5>Recent Sessions</h5>
                     ${sessionsHtml}
                 </div>
             `;

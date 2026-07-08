@@ -191,7 +191,7 @@ async def ws_signal(websocket: WebSocket, room_id: str, role: str, token: str):
     finally:
         room_mgr.unregister(room_id, role, websocket)
 
-        # ✅ If the PATIENT's socket drops (network loss, tab closed, phone
+        # If the PATIENT's socket drops (network loss, tab closed, phone
         # locked, etc.) — not just when the doctor explicitly clicks "End
         # Remote Session" — mark the room closed in the DB too. Without
         # this, TelehealthRoom.status stays "live" forever in the database

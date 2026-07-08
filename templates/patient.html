@@ -210,6 +210,7 @@ let peerConn          = null;
 let signalWs           = null;
 let poseLandmarker     = null;
 let rafId               = null;
+let usingVideoFrameCallback = false;   // requestVideoFrameCallback vs rAF fallback
 let micOn = true, camOn = true;
 let doctorAlreadyPresent = false;
 let metricsIntervalId  = null;
@@ -218,6 +219,70 @@ let lastLandmarks       = null;
 // ───  Exercise config pushed by the doctor (session_config message) ──────
 let currentExerciseType = null;
 let currentTargetRom    = 90;
+
+// ─── Adaptive device tier + FPS ────────────────────────────────────────────
+// Instead of a single fixed detection/encoding rate for every device, we
+// benchmark the actual pose-model inference time on THIS device and bucket
+// it into a tier. High-end phones/laptops get full detection + video FPS;
+// low-end/older devices automatically back off so the UI stays responsive
+// and the WebRTC stream stays smooth instead of stuttering.
+//
+// Every setting below is read with a feature-detect guard where the
+// underlying browser API isn't universally supported (Safari/old Android
+// WebView gaps), so this degrades gracefully instead of throwing on any
+// device — worst case, a device just runs with un-tuned defaults.
+let deviceTier = 'mid';        // 'high' | 'mid' | 'low'
+let targetDetectFps = 20;      // pose detection loop target, adjusted after benchmark
+let targetVideoFps  = 24;      // WebRTC encoder target sent to doctor
+let lastDetectRunTime = 0;
+let DETECT_MAX_DIM_CURRENT = 240; // reassigned once tier is guessed, see below
+
+const _detectTimings = [];     // rolling ms/frame for benchmark
+let _tierCheckAccumMs = 0;
+
+const TIER_PROFILES = {
+    high: { detectFps: 30, videoFps: 30, maxBitrate: 1_500_000, detectDim: 256 },
+    mid:  { detectFps: 20, videoFps: 24, maxBitrate: 900_000,   detectDim: 240 },
+    low:  { detectFps: 12, videoFps: 15, maxBitrate: 400_000,   detectDim: 176 },
+};
+
+function quickInitialTierGuess() {
+    // Cheap heuristic before we have real timing data, so we don't start a
+    // low-end phone at full 30fps for the first couple seconds and choke it.
+    // navigator.deviceMemory is Chromium-only (undefined on Safari/Firefox) —
+    // use it when present since it's a better signal than core count alone,
+    // otherwise fall back to hardwareConcurrency (widely supported, but
+    // still undefined on some very old browsers, hence the `|| 4` default).
+    const cores = navigator.hardwareConcurrency || 4;
+    const mem   = navigator.deviceMemory || null;
+
+    if (mem) {
+        if (mem >= 6 && cores >= 6) return 'high';
+        if (mem <= 2 || cores <= 2) return 'low';
+        return 'mid';
+    }
+    if (cores >= 8) return 'high';
+    if (cores <= 2) return 'low';
+    return 'mid';
+}
+
+function applyTier(tier) {
+    if (tier === deviceTier) return;
+    deviceTier = tier;
+    const p = TIER_PROFILES[tier];
+    targetDetectFps = p.detectFps;
+    targetVideoFps  = p.videoFps;
+    DETECT_MAX_DIM_CURRENT = p.detectDim;
+    detectCanvasReady = false; // force resize on next tick at new resolution
+    console.log(`Device tier -> ${tier} (detect ${p.detectFps}fps, video ${p.videoFps}fps, dim ${p.detectDim})`);
+    applyVideoEncodingParams();
+}
+
+// Seed initial tier + targets before benchmarking kicks in
+deviceTier = quickInitialTierGuess();
+targetDetectFps = TIER_PROFILES[deviceTier].detectFps;
+targetVideoFps  = TIER_PROFILES[deviceTier].videoFps;
+DETECT_MAX_DIM_CURRENT = TIER_PROFILES[deviceTier].detectDim;
 
 // ───  Real rep-counting + stability/smoothness/balance/fatigue tracking —
 // mirrors app.py's local-session logic (_update_rep_count, _update_stability,
@@ -338,15 +403,12 @@ const overlayCanvas = document.getElementById('overlayCanvas');
 const overlayCtx    = overlayCanvas.getContext('2d');
 
 // ─── Low-res detection canvas — mirrors app.py's CameraManager, which
-// captures/processes at 320x240 instead of full resolution ("halves pixel
-// count vs 640x480, ~4x faster inference"). patient.html was feeding the
-// FULL 960x720 getUserMedia video straight into detectForVideo, which is
-// heavy enough on phone CPUs/GPUs to build up several seconds of visible
-// lag between the real movement and the drawn skeleton. The <video>
-// element (shown to the patient, and sent to the doctor over WebRTC)
-// keeps its full capture quality — only the frame handed to the pose
-// model is downscaled, same as the backend's dedicated low-res capture.
-const DETECT_MAX_DIM = 240;
+// captures/processes at a reduced resolution instead of full resolution
+// ("halves pixel count vs 640x480, ~4x faster inference"). The <video>
+// element (shown to the patient, and sent to the doctor over WebRTC) keeps
+// its full capture quality — only the frame handed to the pose model is
+// downscaled, and now that downscale target itself adapts per device tier
+// (DETECT_MAX_DIM_CURRENT), same as the backend's dedicated low-res capture.
 const detectCanvas = document.createElement('canvas');
 const detectCtx     = detectCanvas.getContext('2d');
 let detectCanvasReady = false;
@@ -354,7 +416,7 @@ let detectCanvasReady = false;
 function updateDetectCanvasSize() {
     const vw = localVideo.videoWidth, vh = localVideo.videoHeight;
     if (!vw || !vh) return;
-    const scale = DETECT_MAX_DIM / Math.max(vw, vh);
+    const scale = DETECT_MAX_DIM_CURRENT / Math.max(vw, vh);
     detectCanvas.width  = Math.max(1, Math.round(vw * scale));
     detectCanvas.height = Math.max(1, Math.round(vh * scale));
     detectCanvasReady = true;
@@ -495,16 +557,34 @@ function setConn(live, text) {
     document.getElementById('connText').textContent = text;
 }
 
+// ─── Camera acquisition with graceful constraint fallback ─────────────────
+// Some older Android devices / in-app WebViews reject unfamiliar constraint
+// keys (like `frameRate`) outright instead of just ignoring them. Rather
+// than let getUserMedia throw and strand the patient on a black screen, we
+// retry once with a minimal constraint set if the tuned request fails.
+async function getPatientCameraStream(idealFps) {
+    const baseVideo = { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } };
+    try {
+        return await navigator.mediaDevices.getUserMedia({
+            video: { ...baseVideo, frameRate: { ideal: idealFps, max: 30 } },
+            audio: { echoCancellation: true, noiseSuppression: true },
+        });
+    } catch (e) {
+        console.warn('getUserMedia with frameRate constraint failed, retrying without it:', e);
+        return await navigator.mediaDevices.getUserMedia({
+            video: baseVideo,
+            audio: { echoCancellation: true, noiseSuppression: true },
+        });
+    }
+}
+
 window.joinSession = async function joinSession() {
     const btn = document.getElementById('joinBtn');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting camera...';
 
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
-            audio: { echoCancellation: true, noiseSuppression: true },
-        });
+        localStream = await getPatientCameraStream(TIER_PROFILES[deviceTier].videoFps);
     } catch (e) {
         console.error(e);
         showError('Camera/Mic Blocked', 'Please allow camera and microphone access, then reload the page.');
@@ -517,16 +597,15 @@ window.joinSession = async function joinSession() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Start the render loop right away instead of waiting for the video's
-    // 'loadeddata' event. That event fires almost instantly (camera is
-    // already a live stream), often BEFORE initPoseLandmarker() finishes
-    // downloading the WASM runtime + model over the network — so the
-    // listener below was registered too late and the event was missed,
-    // meaning poseLoop() never ran and the skeleton never appeared.
-    // poseLoop() itself already guards on `!poseLandmarker || readyState<2`
-    // and just re-queues via requestAnimationFrame until both are ready,
-    // so calling it immediately here is race-free.
-    poseLoop();
+    // Start the render/detection loop right away instead of waiting for the
+    // video's 'loadeddata' event. That event fires almost instantly (camera
+    // is already a live stream), often BEFORE initPoseLandmarker() finishes
+    // downloading the WASM runtime + model over the network — so a listener
+    // registered too late would miss it entirely, meaning the skeleton never
+    // appeared. startDetectionLoop() itself already guards on
+    // `!poseLandmarker || readyState<2` and just re-queues until both are
+    // ready, so calling it immediately here is race-free.
+    startDetectionLoop();
 
     await Promise.all([initPoseLandmarker(), initPeerConnection()]);
     connectSignaling();
@@ -554,7 +633,11 @@ async function initPoseLandmarker() {
     } catch (e) {
         // Some mobile/browser combos don't support the WebGL GPU delegate —
         // fall back to CPU instead of failing silently (pose never detects).
-        console.warn('PoseLandmarker: GPU delegate failed, falling back to CPU:', e);
+        // NOTE: the CPU delegate is meaningfully slower per-frame than GPU,
+        // which is one of the biggest contributors to visible lag between
+        // real movement and the drawn skeleton on lower-end phones — this
+        // is exactly what the adaptive tier benchmark below compensates for.
+        console.warn('PoseLandmarker: GPU delegate failed, falling back to CPU (expect slower detection):', e);
         try {
             poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
                 baseOptions: { modelAssetPath: modelPath, delegate: "CPU" },
@@ -571,22 +654,76 @@ async function initPoseLandmarker() {
     }
 }
 
-function poseLoop() {
-    if (!poseLandmarker || localVideo.readyState < 2) {
+// ─── Detection loop driver ────────────────────────────────────────────────
+// Previously this ran purely on requestAnimationFrame (rAF), which fires on
+// the DISPLAY's refresh cycle, not the camera's actual frame arrival. On a
+// 90/120Hz phone screen that means poseLoop() can run more often than new
+// camera frames actually exist (wasted work), while on a throttled/background
+// tab rAF can also fall behind the real camera feed — both show up to the
+// user as the skeleton "lagging behind" their real movement.
+// `video.requestVideoFrameCallback()` (supported in Chrome/Edge/Safari 15.4+)
+// instead fires exactly once per NEW decoded video frame, so detection stays
+// tightly locked to what the camera is actually producing right now instead
+// of an unrelated display refresh timer. Falls back to plain rAF on older
+// browsers that don't support it.
+function startDetectionLoop() {
+    if (typeof localVideo.requestVideoFrameCallback === 'function') {
+        usingVideoFrameCallback = true;
+        localVideo.requestVideoFrameCallback(videoFrameLoop);
+    } else {
+        usingVideoFrameCallback = false;
         rafId = requestAnimationFrame(poseLoop);
-        return;
     }
+}
+
+function videoFrameLoop() {
+    runDetectionTick();
+    localVideo.requestVideoFrameCallback(videoFrameLoop);
+}
+
+// Legacy rAF-based loop, kept as the fallback path for browsers without
+// requestVideoFrameCallback support.
+function poseLoop() {
+    runDetectionTick();
+    rafId = requestAnimationFrame(poseLoop);
+}
+
+function runDetectionTick() {
+    if (!poseLandmarker || localVideo.readyState < 2) return;
+
+    // Throttle to the current tier's target detection FPS. On a high-refresh
+    // display or requestVideoFrameCallback firing on every camera frame,
+    // this skips ticks rather than running the (expensive) pose model more
+    // often than the device tier says it can comfortably handle.
+    const now = performance.now();
+    const minInterval = 1000 / targetDetectFps;
+    if (now - lastDetectRunTime < minInterval) return;
+    const dt = now - lastDetectRunTime;
+    lastDetectRunTime = now;
 
     if (!detectCanvasReady) updateDetectCanvasSize();
-    if (!detectCanvasReady) {
-        // Video dimensions not available yet this tick — skip detection,
-        // try again next frame instead of running on a wrongly-sized canvas.
-        rafId = requestAnimationFrame(poseLoop);
-        return;
-    }
-    detectCtx.drawImage(localVideo, 0, 0, detectCanvas.width, detectCanvas.height);
+    if (!detectCanvasReady) return; // video dimensions not ready this tick — try again next frame
 
+    const t0 = performance.now();
+    detectCtx.drawImage(localVideo, 0, 0, detectCanvas.width, detectCanvas.height);
     const result = poseLandmarker.detectForVideo(detectCanvas, performance.now());
+    const elapsed = performance.now() - t0;
+
+    // Rolling benchmark of actual model inference time — this is the real
+    // signal of device capability (independent of core count guesses), used
+    // to re-classify the tier every ~2s once enough samples are collected.
+    _detectTimings.push(elapsed);
+    if (_detectTimings.length > 30) _detectTimings.shift();
+
+    _tierCheckAccumMs += dt;
+    if (_tierCheckAccumMs >= 2000 && _detectTimings.length >= 10) {
+        _tierCheckAccumMs = 0;
+        const avgMs = _detectTimings.reduce((a, b) => a + b, 0) / _detectTimings.length;
+        if (avgMs < 15)      applyTier('high');
+        else if (avgMs < 35) applyTier('mid');
+        else                 applyTier('low');
+    }
+
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
     if (result.landmarks && result.landmarks.length > 0) {
@@ -602,8 +739,6 @@ function poseLoop() {
         document.getElementById('noPoseChip').classList.add('show');
         lastLandmarks = null;
     }
-
-    rafId = requestAnimationFrame(poseLoop);
 }
 
 function angleBetween(a, b, c) {
@@ -626,9 +761,9 @@ function computeAngles(lm) {
 
 function startMetricsBroadcast() {
     // Matches the in-clinic session page's /api/pose_data poll cadence
-    // (300ms) — was 500ms here, which made the remote session's live
-    // analytics (badges, reps, stability/smoothness/balance) visibly
-    // update slower than an in-clinic session for the exact same movement.
+    // (300ms) — live analytics (badges, reps, stability/smoothness/balance)
+    // update at the same cadence as an in-clinic session regardless of the
+    // device's video/detect tier.
     metricsIntervalId = setInterval(() => {
         if (!signalWs || signalWs.readyState !== WebSocket.OPEN) return;
 
@@ -683,6 +818,43 @@ function startMetricsBroadcast() {
     }, 300);
 }
 
+// ─── Adaptive WebRTC video encoding ─────────────────────────────────────────
+// Tunes the outgoing video sender's framerate/bitrate to match the current
+// device tier, and prefers keeping framerate smooth over keeping resolution
+// sharp when the network or CPU is constrained ('maintain-framerate') — this
+// is the key setting for a smooth, low-lag feed to the doctor over a shaky
+// connection (e.g. a Cloudflare quick tunnel).
+//
+// Every property is feature-detected: `RTCRtpSender.getParameters/
+// setParameters` and `degradationPreference` are broadly supported in
+// modern Chromium/Safari/Firefox, but some older Android WebViews or
+// embedded browsers may partially implement this API. If anything here is
+// missing, we skip tuning silently — the call still works with default
+// WebRTC behavior, just without the extra smoothing.
+function applyVideoEncodingParams() {
+    if (!peerConn || typeof peerConn.getSenders !== 'function') return;
+    const sender = peerConn.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (!sender || typeof sender.getParameters !== 'function' || typeof sender.setParameters !== 'function') {
+        console.warn('setParameters not supported on this browser — skipping bitrate/fps tuning');
+        return;
+    }
+
+    const profile = TIER_PROFILES[deviceTier];
+    try {
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+
+        params.encodings[0].maxFramerate = profile.videoFps;
+        params.encodings[0].maxBitrate   = profile.maxBitrate;
+        params.degradationPreference     = 'maintain-framerate';
+
+        sender.setParameters(params).catch(e =>
+            console.warn('setParameters rejected (non-fatal, video still works):', e));
+    } catch (e) {
+        console.warn('applyVideoEncodingParams failed (non-fatal):', e);
+    }
+}
+
 async function initPeerConnection() {
     let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     try {
@@ -692,6 +864,11 @@ async function initPeerConnection() {
 
     peerConn = new RTCPeerConnection({ iceServers });
     localStream.getTracks().forEach(track => peerConn.addTrack(track, localStream));
+
+    // Apply device-tier-based encoding limits right after tracks are added,
+    // and again automatically whenever the tier is re-classified (see
+    // applyTier() above).
+    applyVideoEncodingParams();
 
     peerConn.ontrack = (event) => {
         const pip = document.getElementById('doctorPip');
@@ -801,6 +978,9 @@ function endSession(title, sub) {
     document.getElementById('endedSub').textContent = sub;
     document.getElementById('endedOverlay').classList.add('active');
 
+    // rafId is only used by the legacy rAF fallback path; the
+    // requestVideoFrameCallback path stops naturally once localStream's
+    // tracks are stopped below (no more decoded frames -> no more callbacks).
     if (rafId) cancelAnimationFrame(rafId);
     if (metricsIntervalId) clearInterval(metricsIntervalId);
     if (localStream) localStream.getTracks().forEach(t => t.stop());

@@ -11,7 +11,7 @@ from sqlalchemy.sql import func
 from database import Base
 
 
-# ─── ID generators ──────────────────────────────────────────────────────────
+# ID generators 
 def new_patient_id() -> str:
     return f"PAT-{uuid.uuid4().hex[:8].upper()}"
 
@@ -24,7 +24,7 @@ def new_room_id() -> str:
     return f"ROOM-{uuid.uuid4().hex[:8].upper()}"
 
 
-# ─── Models ──────────────────────────────────────────────────────────────────
+# Models 
 class Patient(Base):
     __tablename__ = "patients"
     id                 = Column(String(50), primary_key=True, default=new_patient_id)

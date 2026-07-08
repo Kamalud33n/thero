@@ -110,11 +110,14 @@
                             <select id="reportPatientSelect" class="glass-select" onchange="onPatientChange()">
                                 <option value="">Select Patient</option>
                             </select>
-                            <select id="reportTypeSelect" class="glass-select">
+                            <select id="reportTypeSelect" class="glass-select" onchange="onReportTypeChange()">
                                 <option value="weekly">Weekly Report</option>
                                 <option value="monthly">Monthly Report</option>
                                 <option value="history">Full History</option>
+                                <option value="custom">Custom Range</option>
                             </select>
+                            <input type="date" id="reportStartDate" class="glass-select" style="display:none">
+                            <input type="date" id="reportEndDate" class="glass-select" style="display:none">
                             <button class="btn-primary" onclick="generateReport()">
                                 <i class="fas fa-file-pdf"></i> Generate PDF
                             </button>
@@ -568,18 +571,39 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    // Show/hide the from-to date pickers depending on report type
+    function onReportTypeChange() {
+        const type    = document.getElementById('reportTypeSelect').value;
+        const isCustom = type === 'custom';
+        document.getElementById('reportStartDate').style.display = isCustom ? '' : 'none';
+        document.getElementById('reportEndDate').style.display   = isCustom ? '' : 'none';
+    }
+
     // Generate PDF 
     function generateReport() {
         const pid  = document.getElementById('reportPatientSelect').value;
         const type = document.getElementById('reportTypeSelect').value;
         if (!pid) { showToast('Please select a patient', 'error'); return; }
+
+        if (type === 'custom') {
+            const start = document.getElementById('reportStartDate').value;
+            const end   = document.getElementById('reportEndDate').value;
+            if (!start || !end) { showToast('Please pick both from and to dates', 'error'); return; }
+            if (start > end) { showToast('From date must be before To date', 'error'); return; }
+            generatePatientReport(pid, '', type, start, end);
+            return;
+        }
         generatePatientReport(pid, '', type);
     }
 
-    async function generatePatientReport(pid, name, type = 'weekly') {
+    async function generatePatientReport(pid, name, type = 'weekly', startDate = null, endDate = null) {
         showToast(`Generating report${name ? ' for ' + name : ''}...`, 'success');
         try {
-            const res = await fetch(`/api/reports/${pid}?report_type=${type}`);
+            let url = `/api/reports/${pid}?report_type=${type}`;
+            if (type === 'custom' && startDate && endDate) {
+                url += `&start_date=${startDate}&end_date=${endDate}`;
+            }
+            const res = await fetch(url);
             if (!res.ok) {
                 let msg = `Report generation failed (${res.status})`;
                 try { msg = (await res.json()).detail || msg; } catch (_) {}
@@ -587,7 +611,8 @@
                 return;
             }
             const blob = await res.blob();
-            downloadBlob(blob, `report_${pid}_${type}.pdf`);
+            const fnameSuffix = type === 'custom' ? `${startDate}_to_${endDate}` : type;
+            downloadBlob(blob, `report_${pid}_${fnameSuffix}.pdf`);
             showToast('Report downloaded', 'success');
 
             // Refresh history list if this patient's history is currently shown

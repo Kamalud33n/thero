@@ -465,6 +465,10 @@
 
                         <!--  Remote (telehealth) patient video — shares this same screen -->
                         <video id="remotePatientVideo" autoplay playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;"></video>
+                        <!-- Skeleton overlay canvas drawn on top of the patient's WebRTC video,
+                             using the same joint points the patient's own MediaPipe run already sends
+                             over the WS connection (msg.points in the pose_metrics handler below). -->
+                        <canvas id="remoteOverlayCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:8;"></canvas>
                         <div class="remote-doctor-pip" id="remoteDoctorPip" style="display:none">
                             <video id="remoteDoctorVideo" autoplay playsinline muted></video>
                         </div>
@@ -716,7 +720,7 @@
 </div>
 
 <script>
-// ─── State ────────────────────────────────────────────────────────────────────
+// State
 let sessionActive    = false;
 let cameraActive     = false;
 let isRemoteMode     = false;   // true once a remote patient's video is driving the shared camera screen
@@ -847,15 +851,48 @@ async function syncExerciseType() {
     } catch(e) { console.error('syncExerciseType:', e); }
 }
 
-// Which joint group is relevant for the selected exercise 
-// Mirrors the backend's _compute_primary_angle / _get_active_connections
-// mapping so the UI only lights up the joint(s) actually being tracked.
+// ─── Which joints/connections are relevant for a given exercise type ──────
+// This is now the SINGLE SOURCE OF TRUTH shared by:
+//   1. applyActiveJointUI()   — dims irrelevant badges/angle-grid items
+//   2. drawRemoteSkeleton()   — draws only the relevant dot-connections
+// It is an EXACT copy of patient.html's getActiveConnections(), so the
+// doctor's page and the patient's page always agree on which joints are
+// "active" for a given exercise.
+function getActiveConnections(exerciseType) {
+    const ex = (exerciseType || '').toLowerCase();
+    const LS='left_shoulder', RS='right_shoulder', LE='left_elbow', RE='right_elbow',
+          LW='left_wrist', RW='right_wrist', LH='left_hip', RH='right_hip',
+          LK='left_knee', RK='right_knee', LA='left_ankle', RA='right_ankle';
+
+    if (ex.includes('elbow'))  return [[LS,LE],[LE,LW],[RS,RE],[RE,RW]];
+    if (ex.includes('hand'))   return [[LE,LW],[RE,RW]];
+    if (ex.includes('ankle'))  return [[LK,LA],[RK,RA]];
+    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg'))
+        return [[LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+    if (ex.includes('hip'))    return [[LS,LH],[RS,RH],[LH,LK],[RH,RK]];
+    if (ex.includes('shoulder') || ex.includes('arm'))
+        return [[LS,LE],[RS,RE],[LS,LH],[RS,RH]];
+    if (ex.includes('balance'))
+        return [[LS,RS],[LS,LH],[RS,RH],[LH,RH],
+                [LS,LE],[LE,LW],[RS,RE],[RE,RW],
+                [LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+    return [[LS,LE],[LE,LW],[RS,RE],[RE,RW],[LH,LK],[LK,LA],[RH,RK],[RK,RA]];
+}
+
+// Which BADGE/ANGLE-GRID group (shoulder/elbow/knee/all) lights up for the
+// current exercise. session.html's UI only has shoulder/elbow/knee badges
+// (no dedicated hand/ankle/hip badges), so those exercise types are mapped
+// to the closest existing group instead of silently falling through to a
+// wrong default.
 function getActiveJointGroup() {
     const ex = (document.getElementById('exerciseType')?.value || '').toLowerCase();
     if (ex.includes('balance'))                                  return 'all';
+    if (ex.includes('hand'))                                     return 'elbow'; // no dedicated hand badge — closest group
+    if (ex.includes('ankle'))                                    return 'knee';  // no dedicated ankle badge — closest group
+    if (ex.includes('hip'))                                      return 'all';   // spans shoulder+knee area — show all rather than mis-dim
     if (ex.includes('shoulder') || ex.includes('arm'))           return 'shoulder';
-    if (ex.includes('elbow') || ex.includes('hand'))             return 'elbow';
-    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg') || ex.includes('ankle'))
+    if (ex.includes('elbow'))                                    return 'elbow';
+    if (ex.includes('knee') || ex.includes('squat') || ex.includes('leg'))
         return 'knee';
     return 'elbow'; // fallback, matches backend default
 }
@@ -881,11 +918,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exerciseType')?.addEventListener('change', () => {
         applyActiveJointUI();
         if (cameraActive) syncExerciseType();
-        if (isRemoteMode && remotePatientConnected) syncRemoteExerciseConfig();
+        if (isRemoteMode) syncRemoteExerciseConfig();
     });
     document.getElementById('targetRom')?.addEventListener('change', () => {
         if (cameraActive) syncExerciseType();
-        if (isRemoteMode && remotePatientConnected) syncRemoteExerciseConfig();
+        if (isRemoteMode) syncRemoteExerciseConfig();
     });
 });
 
@@ -990,9 +1027,6 @@ function handlePoseData(data) {
             if (data.fatigue    != null) currentFatigue    = data.fatigue;
             updateAnalytics(data.primary_angle, targetRom);
         } catch (err) {
-            // Was failing silently before — this makes the real cause
-            // visible in DevTools console instead of Live Analytics just
-            // staying frozen at 0 with no explanation.
             console.error('Live Analytics update failed:', err, { data, targetRom, sessionActive });
         }
     }
@@ -1144,7 +1178,7 @@ function updateTimerRing() {
     document.getElementById('timerText').textContent = `${m}:${s}`;
 }
 
-// ─── Analytics update (fully derived from real backend data, no Math.random) ─
+// Analytics update (fully derived from real backend data, no Math.random) 
 function updateAnalytics(primaryAngle, targetRom) {
     if (primaryAngle != null && targetRom > 0) {
         currentRom      = Math.min(targetRom, Math.max(0, primaryAngle));
@@ -1414,6 +1448,87 @@ let remoteLocalStream = null;
 let remoteMicOn = true, remoteCamOn = true;
 let remotePatientConnected = false;
 
+// ─── Skeleton overlay drawing for the remote patient's video ──────────────
+// The patient's own page (patient.html) already runs MediaPipe locally and
+// sends the computed joint points (normalized 0..1 coords, already filtered
+// to only the joints relevant to the active exercise) over the WS signaling
+// channel as part of the `pose_metrics` message.
+//
+// Note: unlike the patient's own local preview (which mirrors its video for
+// a natural "selfie" feel via CSS scaleX(-1)), the doctor's incoming
+// WebRTC video is NOT mirrored — a video call convention (you see the other
+// person as they actually appear, not flipped). The raw landmark points sent
+// over the wire are in that same *unmirrored* coordinate space, so this
+// draws them directly with no horizontal flip, matching remotePatientVideo's
+// own lack of a mirror transform.
+function resizeRemoteOverlayCanvas() {
+    const canvas = document.getElementById('remoteOverlayCanvas');
+    const video  = document.getElementById('remotePatientVideo');
+    if (!canvas || !video) return;
+    canvas.width  = video.clientWidth  || canvas.parentElement.clientWidth;
+    canvas.height = video.clientHeight || canvas.parentElement.clientHeight;
+}
+
+function getRemoteCoverTransform(video, canvas) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const cw = canvas.width, ch = canvas.height;
+    if (!vw || !vh) return { offsetX: 0, offsetY: 0, drawW: cw, drawH: ch };
+    const scale = Math.max(cw / vw, ch / vh);
+    const drawW = vw * scale, drawH = vh * scale;
+    return { offsetX: (cw - drawW) / 2, offsetY: (ch - drawH) / 2, drawW, drawH };
+}
+
+function drawRemoteSkeleton(points, exerciseType) {
+    const canvas = document.getElementById('remoteOverlayCanvas');
+    const video  = document.getElementById('remotePatientVideo');
+    if (!canvas || !video) return;
+
+    if (canvas.width !== (video.clientWidth || 0) || canvas.height !== (video.clientHeight || 0)) {
+        resizeRemoteOverlayCanvas();
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!points || Object.keys(points).length === 0) return;
+
+    const t = getRemoteCoverTransform(video, canvas);
+    const toPt = (name) => {
+        const p = points[name];
+        if (!p) return null;
+        return [t.offsetX + p[0] * t.drawW, t.offsetY + p[1] * t.drawH];
+    };
+
+    // Same joint/connection set + same colors as patient.html's own
+    // drawFilteredSkeleton(), so what the doctor sees matches what the
+    // patient sees on their own screen — same joints, same look.
+    const conns = getActiveConnections(exerciseType);
+    const activePoints = new Set();
+    conns.forEach(([a, b]) => { activePoints.add(a); activePoints.add(b); });
+
+    ctx.strokeStyle = '#91e494';
+    ctx.lineWidth = 3;
+    conns.forEach(([a, b]) => {
+        const pa = toPt(a), pb = toPt(b);
+        if (pa && pb) {
+            ctx.beginPath();
+            ctx.moveTo(pa[0], pa[1]);
+            ctx.lineTo(pb[0], pb[1]);
+            ctx.stroke();
+        }
+    });
+
+    ctx.fillStyle = '#4CAF50';
+    activePoints.forEach((name) => {
+        const p = toPt(name);
+        if (p) {
+            ctx.beginPath();
+            ctx.arc(p[0], p[1], 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+}
+
+window.addEventListener('resize', () => { if (isRemoteMode) resizeRemoteOverlayCanvas(); });
+
 // Switch the SAME camera-container screen between local webcam & remote
 // patient video, so badges / timer ring / joint-angles / analytics are
 // reused as-is for both modes 
@@ -1424,12 +1539,18 @@ function enterRemoteVideoMode() {
     document.getElementById('cameraPlaceholder').style.display   = 'none';
     document.getElementById('poseStream').style.display           = 'none';
     document.getElementById('remotePatientVideo').style.display   = 'block';
+    document.getElementById('remoteOverlayCanvas').style.display  = 'block';
     document.getElementById('remoteDoctorPip').style.display      = 'block';
     document.getElementById('remoteNoPatient').style.display      = 'flex';
     document.getElementById('poseBadges').style.display           = 'flex';
     document.getElementById('cameraStatusText').textContent       = 'Remote';
     document.getElementById('cameraStatus').classList.add('active');
     applyActiveJointUI();
+
+    // Keep the overlay canvas pixel-sized to match the video element, and
+    // re-sync whenever the actual video track's real dimensions arrive.
+    resizeRemoteOverlayCanvas();
+    document.getElementById('remotePatientVideo').addEventListener('loadedmetadata', resizeRemoteOverlayCanvas);
 }
 
 function exitRemoteVideoMode() {
@@ -1437,6 +1558,9 @@ function exitRemoteVideoMode() {
     const video = document.getElementById('remotePatientVideo');
     video.srcObject = null;
     video.style.display = 'none';
+    document.getElementById('remoteOverlayCanvas').style.display = 'none';
+    const overlayCtx = document.getElementById('remoteOverlayCanvas').getContext('2d');
+    overlayCtx.clearRect(0, 0, overlayCtx.canvas.width, overlayCtx.canvas.height);
     document.getElementById('remoteDoctorPip').style.display   = 'none';
     document.getElementById('remoteNoPatient').style.display   = 'none';
     document.getElementById('poseBadges').style.display        = 'none';
@@ -1561,6 +1685,39 @@ async function connectDoctorSignaling() {
     remotePeerConn.ontrack = (event) => {
         document.getElementById('remoteNoPatient').style.display = 'none';
         document.getElementById('remotePatientVideo').srcObject = event.streams[0];
+        // 'loadedmetadata' sometimes fires late enough that the first few
+        // incoming pose_metrics messages find canvas.width/height still 0
+        // (never resized yet), so drawRemoteSkeleton() draws nothing for a
+        // moment/permanently on some browsers. Resize immediately here too —
+        // clientWidth/Height come from CSS (100% of the container), not the
+        // video's intrinsic size, so this is safe to call even before the
+        // track's real dimensions are known. loadedmetadata still fires
+        // afterward as a backup.
+        resizeRemoteOverlayCanvas();
+
+        // ─── Low-latency receiver tuning ───────────────────────────────
+        // Reduces the jitter buffer the browser holds incoming frames in
+        // before playback, so the video doesn't build up a growing lag
+        // over the course of a long call — trims latency at the cost of
+        // slightly more sensitivity to network jitter, which is the right
+        // tradeoff for a live therapy call where responsiveness matters
+        // more than perfect smoothness during brief network hiccups.
+        //
+        // Both properties are Chromium-only as of most browser versions
+        // (not implemented in Safari/Firefox) — feature-detected via
+        // `'x' in receiver` so this is a no-op (not an error) everywhere
+        // else; the call still plays back normally with default buffering.
+        const receiver = event.receiver;
+        try {
+            if (receiver && 'jitterBufferTarget' in receiver) {
+                receiver.jitterBufferTarget = 0;
+            }
+            if (receiver && 'playoutDelayHint' in receiver) {
+                receiver.playoutDelayHint = 0;
+            }
+        } catch (e) {
+            console.warn('low-latency receiver hints not supported on this browser:', e);
+        }
     };
 
     remotePeerConn.onicecandidate = (event) => {
@@ -1592,7 +1749,6 @@ async function connectDoctorSignaling() {
                 // stability) from the patient's own on-device computation.
                 // Patient sends long joint names — remap to the short keys
                 // (l_shoulder etc.) the shared pipeline expects.
-                console.log('[remote pose_metrics] sessionActive=', sessionActive, msg);
                 const a = msg.angles || {};
                 const angles = {
                     l_shoulder: a.left_shoulder,  r_shoulder: a.right_shoulder,
@@ -1609,6 +1765,10 @@ async function connectDoctorSignaling() {
                     fatigue:       msg.fatigue,
                     primary_angle: msg.primary_angle,
                 });
+                // Draws the connected-dot skeleton on the doctor's screen
+                // using the same points + same exercise-based joint filter
+                // the patient's own screen uses.
+                drawRemoteSkeleton(msg.points, msg.exercise_type);
                 break;
             }
             case 'peer_left':

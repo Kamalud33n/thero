@@ -1,5 +1,6 @@
 import os
 import asyncio
+import datetime
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,11 +13,12 @@ router = APIRouter()
 
 
 @router.get("/api/reports/{patient_id}")
-async def generate_report(patient_id: str, report_type: str = "weekly"):
-    """
-    PDF generation runs synchronously in a thread pool executor so it
-    does NOT block the event loop while WebSocket streaming is active.
-    """
+async def generate_report(
+    patient_id: str,
+    report_type: str = "weekly",
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
     # Pre-check so the user gets a clean JSON error instead of a raw 404
     # blank tab when the patient doesn't exist / has no sessions yet.
     with get_db() as db:
@@ -32,14 +34,35 @@ async def generate_report(patient_id: str, report_type: str = "weekly"):
         if not has_sessions:
             raise HTTPException(404, "No sessions found for this patient yet — complete a session first")
 
+    # Custom date-range report needs both dates, validated + parsed here so
+    # build_report_sync (which runs in a thread executor) only ever sees
+    # clean datetime objects, not raw query strings.
+    range_start = range_end = None
+    if report_type == "custom":
+        if not start_date or not end_date:
+            raise HTTPException(400, "start_date and end_date are required for a custom report")
+        try:
+            range_start = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+            range_end = datetime.datetime.strptime(end_date, "%Y-%m-%d") + datetime.timedelta(
+                hours=23, minutes=59, seconds=59
+            )
+        except ValueError:
+            raise HTTPException(400, "Dates must be in YYYY-MM-DD format")
+        if range_start > range_end:
+            raise HTTPException(400, "start_date must be before end_date")
+
     loop = asyncio.get_event_loop()
     filepath = await loop.run_in_executor(
-        None, build_report_sync, patient_id, report_type
+        None, build_report_sync, patient_id, report_type, range_start, range_end
+    )
+
+    fname_suffix = (
+        f"{start_date}_to_{end_date}" if report_type == "custom" else report_type
     )
     return FileResponse(
         filepath,
         media_type="application/pdf",
-        filename=f"report_{patient_id}_{report_type}.pdf",
+        filename=f"report_{patient_id}_{fname_suffix}.pdf",
     )
 
 

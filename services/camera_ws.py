@@ -1,8 +1,3 @@
-"""
-Legacy /ws/pose WebSocket camera pipeline — kept for future use.
-The primary/active pipeline used by the session page is the MJPEG one in
-services/mjpeg_camera.py; this module is separate and unaffected by it.
-"""
 import time
 from typing import List, Optional
 

@@ -76,21 +76,140 @@ def _make_progress_chart(sessions: list) -> io.BytesIO:
     return buf
 
 
-def build_report_sync(patient_id: str, report_type: str) -> str:
-    """Pure sync function — safe to run in executor alongside async WS loop."""
+def _build_recommendations(sessions, avg_acc, avg_rom, rec_score, improvement) -> list:
+    """
+    Rule-based (non-AI) recommendation engine. Looks at every metric already
+    stored per session — not just accuracy/ROM — and returns a short,
+    priority-ordered list: real problems first, general coaching next,
+    positive reinforcement last. Capped so the PDF section stays readable
+    instead of dumping every possible sentence.
+    """
+    n = len(sessions)
+
+    def _avg(attr):
+        return sum((getattr(s, attr) or 0) for s in sessions) / n
+
+    avg_stability = _avg("stability_score")
+    avg_balance   = _avg("balance_score")
+    avg_smooth    = _avg("movement_smoothness")
+    avg_fatigue   = _avg("fatigue_estimation")
+    avg_incorrect = _avg("incorrect_movements")
+
+    total_reps_target = sum(s.total_reps for s in sessions)
+    total_reps_done   = sum(s.completed_reps for s in sessions)
+    rep_completion = (total_reps_done / total_reps_target * 100) if total_reps_target else 100
+
+    # `sessions` is already ordered oldest -> newest by the caller's query,
+    # so consecutive differences give real day-gaps between visits.
+    gaps = [
+        (sessions[i + 1].start_time - sessions[i].start_time).days
+        for i in range(len(sessions) - 1)
+    ]
+    avg_gap_days = (sum(gaps) / len(gaps)) if gaps else None
+
+    priority, general, positive = [], [], []
+
+    # --- Priority: needs attention now ---
+    if avg_acc < 60:
+        priority.append("Accuracy is below target — slow down repetitions and prioritize correct form over speed.")
+    if avg_rom < 50:
+        priority.append("Range of motion is limited — add gentle stretching/mobility work before each session.")
+    if avg_fatigue > 60:
+        priority.append("Fatigue levels are running high during sessions — consider shorter sets with more rest between reps.")
+    if avg_incorrect > 3:
+        priority.append(f"An average of {avg_incorrect:.1f} incorrect movements per session were recorded — review technique with the therapist.")
+    if avg_balance < 50:
+        priority.append("Balance scores are low — incorporate dedicated balance/stability drills.")
+    if improvement < -5:
+        priority.append(f"Performance has dipped ({improvement:+.1f}%) compared to earlier sessions — worth discussing with the therapist.")
+
+    # --- General: moderate areas still worth coaching ---
+    if 60 <= avg_acc < 75:
+        general.append("Accuracy is moderate — continued focus on controlled movement should improve this further.")
+    if 50 <= avg_rom < 65:
+        general.append("Range of motion is improving but still limited — keep up mobility exercises.")
+    if avg_smooth < 60:
+        general.append("Movement smoothness could improve — practicing at a slower, steadier pace may help.")
+    if 50 <= avg_stability < 65:
+        general.append("Stability is improving but still developing — continue balance-focused exercises.")
+    if rep_completion < 80:
+        general.append(f"Only {rep_completion:.0f}% of prescribed reps were completed on average — encourage finishing full sets where possible.")
+    if avg_gap_days is not None and avg_gap_days > 5:
+        general.append(f"Sessions are averaging {avg_gap_days:.1f} days apart — more frequent sessions (2–3x/week) would support faster recovery.")
+    if n < 5:
+        general.append("Still early in the program — consistent practice over at least 10 sessions is recommended before re-evaluation.")
+
+    # --- Positive reinforcement ---
+    if avg_acc >= 85 and avg_rom >= 80:
+        positive.append("Excellent progress on both accuracy and range of motion — consider introducing more advanced functional exercises.")
+    elif avg_acc >= 75 and avg_rom >= 70:
+        positive.append("Good overall progress — maintain the current routine and gradually increase intensity.")
+    if improvement > 15:
+        positive.append(f"Strong improvement trend ({improvement:+.1f}%) since the first session — keep up the momentum.")
+    if rec_score >= 75:
+        positive.append("Recovery score indicates strong progress toward full functional recovery.")
+
+    # Priority issues surface first, then coaching notes, then encouragement.
+    # Capped at 6 so the section stays focused rather than an unfocused wall
+    # of every possible sentence.
+    recs = priority + general + positive
+    if not recs:
+        recs = ["Continue current therapy plan.", "Regular monitoring is recommended."]
+    return recs[:6]
+
+
+def build_report_sync(
+    patient_id: str,
+    report_type: str,
+    range_start: datetime.datetime | None = None,
+    range_end: datetime.datetime | None = None,
+) -> str:
+    """Pure sync function — safe to run in executor alongside async WS loop.
+
+    report_type controls which sessions are included:
+      - "weekly"  -> sessions from the last 7 days
+      - "monthly" -> sessions from the last 30 days
+      - "custom"  -> sessions between range_start and range_end (inclusive)
+      - anything else (e.g. "history") -> all sessions
+    """
     with get_db() as db:
         p = db.query(Patient).filter(Patient.id == patient_id).first()
         if not p:
             raise HTTPException(404, "Patient not found")
 
-        sessions = (
+        all_sessions = (
             db.query(SessionModel)
             .filter(SessionModel.patient_id == patient_id)
             .order_by(SessionModel.start_time)
             .all()
         )
-        if not sessions:
+        if not all_sessions:
             raise HTTPException(404, "No sessions found for this patient")
+
+        now = datetime.datetime.now()
+        if report_type == "weekly":
+            cutoff = now - datetime.timedelta(days=7)
+            sessions = [s for s in all_sessions if s.start_time >= cutoff]
+            period_label = f"Weekly Report — last 7 days (as of {now.strftime('%Y-%m-%d')})"
+        elif report_type == "monthly":
+            cutoff = now - datetime.timedelta(days=30)
+            sessions = [s for s in all_sessions if s.start_time >= cutoff]
+            period_label = f"Monthly Report — last 30 days (as of {now.strftime('%Y-%m-%d')})"
+        elif report_type == "custom":
+            sessions = [
+                s for s in all_sessions
+                if range_start <= s.start_time <= range_end
+            ]
+            period_label = (
+                f"Custom Report — {range_start.strftime('%Y-%m-%d')} "
+                f"to {range_end.strftime('%Y-%m-%d')}"
+            )
+        else:
+            sessions = all_sessions
+            period_label = "Full History Report"
+
+        if not sessions:
+            raise HTTPException(404, "No sessions found in the selected date range")
 
         report_dir = f"reports/{patient_id}"
         os.makedirs(report_dir, exist_ok=True)
@@ -204,7 +323,7 @@ def build_report_sync(patient_id: str, report_type: str) -> str:
         # Header
         story = [
             Paragraph("Rehabilitation AI System", title_style),
-            Paragraph("Medical Progress Report", subtitle_style),
+            Paragraph(period_label, subtitle_style),
             Spacer(1, 14),
         ]
 
@@ -295,19 +414,7 @@ def build_report_sync(patient_id: str, report_type: str) -> str:
         # AI Recommendations
         story += [section_header("AI Recommendations"), Spacer(1, 10)]
 
-        recs = []
-        if avg_acc  < 70:  recs.append("Focus on improving movement accuracy — consider slower, controlled repetitions.")
-        if avg_rom  < 60:  recs.append("Work on increasing range of motion with gentle stretching before sessions.")
-        if rec_score < 50: recs.append("Continue therapy with increased frequency (3–4 sessions/week recommended).")
-        if n < 5:          recs.append("Consistent practice is key — aim for at least 10 sessions before re-evaluation.")
-        if avg_acc >= 85 and avg_rom >= 80:
-            recs.append("Excellent progress! Consider introducing advanced functional exercises.")
-        elif avg_acc >= 70 and avg_rom >= 70:
-            recs.append("Good progress — maintain current routine and gradually increase intensity.")
-        if improvement > 15:
-            recs.append(f"Strong improvement trend ({improvement:+.1f}%) — keep up the momentum.")
-        if not recs:
-            recs = ["Continue current therapy plan.", "Regular monitoring is recommended."]
+        recs = _build_recommendations(sessions, avg_acc, avg_rom, rec_score, improvement)
 
         for r in recs:
             story.append(Paragraph(f"■&nbsp;&nbsp;{r}", body_style))
